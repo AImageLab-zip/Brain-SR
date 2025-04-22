@@ -40,8 +40,6 @@ def compute_y_start(high_res_affine: np.ndarray, low_res_affine: np.ndarray) -> 
     return y_start_index
 
 def select_region_of_interest(y_start_index: int) -> dict:
-    # TODO: provare con una y a caso e vedere se si allinea comunque
-
     # Nel codice originale venivano usati i punti della segmentazione
     # per definire dei bordi. In questo caso non ce li ho e li definisco io
 
@@ -54,11 +52,8 @@ def select_region_of_interest(y_start_index: int) -> dict:
     min_x, max_x = 0, 4000
     min_z, max_z = 1000, 2000
 
-    # FIXME: Perche definire 4 corner quando ne bastano 2?
     corners = {
         'A': [min_x, y_start_index, min_z],
-        #'B': [max_x, y_start_index, min_z],
-        #'C': [min_x, y_start_index, max_z],
         'D': [max_x, y_start_index, max_z]
     }
 
@@ -88,29 +83,36 @@ def crop_low_res(low_res_img: np.ndarray, corners: dict) -> np.ndarray:
 
     return low_res_crop
 
-
-def crop_high_res(high_res_img: np.ndarray, corners: dict) -> np.ndarray:
+def compute_high_res_crop_indices(corners: dict, img_shape: tuple) -> tuple:
 
     min_x, max_x = corners['A'][0], corners['D'][0]
     min_z, max_z = corners['A'][2], corners['D'][2]
 
-    print(f"High res crop coordinates: {min_x}, {max_x}, {min_z}, {max_z}")
+    # Flip indici perche l'asse Z e' invertito nell'immagine (e quindi max<->min)
+    new_min_x = img_shape[0] - max_x
+    new_max_x = img_shape[0] - min_x
 
-    # TODO: gli indici ritornati dalla matrice di trasformazione per z
-    #       hanno il min al posto del max -> capire come mai
-    #       e' perche e' flippato? (pero' i valori sono corretti)
+    # Aggiusto gli indici ritornati dalla matrice di trasformazione,
+    # perche' sono invertiti
+    new_max_z = img_shape[0] - max_z
+    new_min_z = img_shape[0] - min_z
+
+    return new_min_x, new_max_x, new_min_z, new_max_z
+
+
+def crop_high_res(high_res_img: np.ndarray, corners: dict) -> np.ndarray:
+
+    min_x, max_x, min_z, max_z = compute_high_res_crop_indices(corners, high_res_img.shape)
+
+    print(f"High res crop coordinates: {min_x}, {max_x}, {min_z}, {max_z}")
 
     high_res_img = high_res_img.asarray()
 
+    # Attenzione che qua croppo [X, Z] e non [Z, X]
+    high_res_crop = high_res_img[min_x:max_x, min_z:max_z]
+
     # Flip the image
-    high_res_flip = np.flip(high_res_img, axis=0)
-
-    # Crop high-res image and flip it
-    img_z_len = high_res_flip.shape[0]
-    max_z = img_z_len - max_z
-    min_z = img_z_len - min_z
-
-    high_res_crop = high_res_flip[min_x:max_x, min_z:max_z]
+    high_res_crop = np.flip(high_res_crop, axis=0)
 
     return high_res_crop
 
@@ -128,7 +130,8 @@ if __name__ == "__main__":
 
     # Estraggo il valore di y dell'immagine high-res
     # avendo gia' la coppia high/low il valore di y non serve (forse)
-    y_start_index_20um = compute_y_start(high_res_affine, low_res_affine)
+    #y_start_index_20um = compute_y_start(high_res_affine, low_res_affine)
+    y_start_index_20um = 0
 
     corners_20um = select_region_of_interest(y_start_index_20um)
     corners_1um = transform_corners(corners_20um, low_res_affine, high_res_affine)

@@ -16,9 +16,15 @@ for i in affine_ids:
     url = base_url + filename
 
     outpath = save_path + filename
+
+    if os.path.exists(outpath):
+        print("Already downloaded:", filename)
+        continue
+
     try:
         print("DOWNLOADING:", filename)
         wget.download(url, outpath)
         print("Downloaded:", filename)
-    except HTTPError:
+    except HTTPError as e:
+        print(e)
         continue
