@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Current",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Debug Inference",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/inference_invsr.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "-i", "../crops/2956/low_2956_2.png",
+                "-o", "outfolder",
+                "--num_steps", "1"
+            ]
+        },
+        {
+            "name": "Attach to Remote Debugpy",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "justMyCode": false
+        }
+    ]
+}

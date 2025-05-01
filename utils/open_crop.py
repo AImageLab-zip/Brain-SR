@@ -6,6 +6,7 @@ from io import BytesIO
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
 
 
 def open_low_res(img_path: str) -> (np.ndarray, np.ndarray):
@@ -49,8 +50,10 @@ def select_region_of_interest(y_start_index: int) -> dict:
 
     #min_x, max_x = 3500, 3600
     #min_z, max_z = 3700, 3800
-    min_x, max_x = 0, 4000
-    min_z, max_z = 1000, 2000
+    min_x, max_x = 3400, 3700
+    min_z, max_z = 3600, 3900
+    #min_x, max_x = 0, 4000
+    #min_z, max_z = 1000, 2000
 
     corners = {
         'A': [min_x, y_start_index, min_z],
@@ -117,7 +120,52 @@ def crop_high_res(high_res_img: np.ndarray, corners: dict) -> np.ndarray:
     return high_res_crop
 
 
+def normalize_to_save(img: np.ndarray) -> np.ndarray:
+    # Normalize the image to [0, 1] and convert to uint8
+    img_min = img.min()
+    img_max = img.max()
+    img_norm = (img - img_min) / (img_max - img_min)  # float in [0,1]
+    img_8bit = (img_norm * 255).astype(np.uint8)
+
+    return img_8bit
+
+def save_crops(low_res, high_res, imgid, savedir):
+
+    savefolder = os.path.join(savedir, imgid)
+    if not os.path.exists(savefolder):
+        os.makedirs(savefolder)
+
+    # if exists a file with the same name, add a number to the name
+    i = 1
+    while os.path.exists(os.path.join(savefolder, f"high_{imgid}_{i}.png")):
+        i += 1
+
+    basename = f"{imgid}_{i}"
+
+    low_res_img = low_res.squeeze()
+    low_res_img = np.flip(low_res_img, axis=0)
+    low_res_8bit = normalize_to_save(low_res_img)
+    low_res_img = Image.fromarray(low_res_8bit, mode='L')
+    low_res_img.save(os.path.join(savefolder, f"low_{basename}.png"))
+
+    high_res_img = high_res.squeeze()
+    high_res_img = np.flip(high_res_img, axis=0)
+    high_res_8bit = normalize_to_save(high_res_img)
+    high_res_img = Image.fromarray(high_res_8bit, mode='L')
+    high_res_img.save(os.path.join(savefolder, f"high_{basename}.png"))
+
+    print(f"Saved crops to {savefolder} as {basename}.png")
+
+
 if __name__ == "__main__":
+
+    REMOTE_DEBUG = False
+
+    if REMOTE_DEBUG:
+        import debugpy
+        debugpy.listen(("0.0.0.0", 5678))  # Accept connections on all interfaces
+        print("Waiting for debugger attach...")
+        debugpy.wait_for_client()
 
     image_id = "2956"
 
@@ -147,7 +195,10 @@ if __name__ == "__main__":
     plt.title('Low Res Crop')
     plt.show()
 
-    high_res_crop = high_res_crop[::8, ::8]
-    plt.imshow(high_res_crop, origin="lower")
+    high_res_crop_downscale = high_res_crop[::8, ::8]
+    plt.imshow(high_res_crop_downscale, origin="lower")
     plt.title('High Res Crop')
     plt.show()
+
+    # Save the crops
+    save_crops(low_res_crop, high_res_crop, image_id, "/homes/gcasari/bigbrain/crops")
