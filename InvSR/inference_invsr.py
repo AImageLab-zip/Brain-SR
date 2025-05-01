@@ -41,6 +41,11 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
         "--chopping_size", type=int, default=128, help="Chopping size when dealing large images"
     )
+
+    parser.add_argument(
+        "--remote-debug", action="store_true"
+    )
+
     args = parser.parse_args()
 
     return args
@@ -102,8 +107,21 @@ def get_configs(args):
 
     return configs
 
+
+def activate_remote_debug():
+
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))  # Accept connections on all interfaces
+    print("Waiting for debugger attach...")
+    debugpy.wait_for_client()
+
+
 def main():
     args = get_parser()
+
+    if args.remote_debug:
+        print("Activating Remote Debugging!")
+        activate_remote_debug()
 
     configs = get_configs(args)
 

@@ -23,8 +23,11 @@ import torch.multiprocessing as mp
 from datapipe.datasets import create_dataset
 from diffusers import StableDiffusionInvEnhancePipeline, AutoencoderKL
 
-_positive= 'Cinematic, high-contrast, photo-realistic, 8k, ultra HD, ' +\
-           'meticulous detailing, hyper sharpness, perfect without deformations'
+#_positive= 'Cinematic, high-contrast, photo-realistic, 8k, ultra HD, ' +\
+#           'meticulous detailing, hyper sharpness, perfect without deformations'
+_positive= "High-resolution histological brain tissue, accurate cellular structures, sharp cortical layers, " \
+            "precise anatomical detail, realistic staining patterns, microscopy-grade clarity, " \
+            "no artifacts, no hallucinated features, no stylization"
 _negative= 'Low quality, blurring, jpeg artifacts, deformed, over-smooth, cartoon, noisy,' +\
            'painting, drawing, sketch, oil painting'
 
@@ -58,6 +61,8 @@ class BaseSampler:
         torch_dtype = params.pop('torch_dtype')
         params['torch_dtype'] = get_torch_dtype(torch_dtype)
         base_pipe = util_common.get_obj_from_str(self.configs.sd_pipe.target).from_pretrained(**params)
+
+        # skippato
         if self.configs.get('scheduler', None) is not None:
             pipe_id = self.configs.scheduler.target.split('.')[-1]
             self.write_log(f'Loading scheduler of {pipe_id}...')
@@ -65,6 +70,7 @@ class BaseSampler:
                 base_pipe.scheduler.config
             )
             self.write_log('Loaded Done')
+        # skippato
         if self.configs.get('vae_fp16', None) is not None:
             params_vae = dict(self.configs.vae_fp16.params)
             torch_dtype = params_vae.pop('torch_dtype')
@@ -76,34 +82,42 @@ class BaseSampler:
             )
             self.write_log('Loaded Done')
         if self.configs.base_model in ['sd-turbo', 'sd2base'] :
+            # Crea questa pipeline che e' quella per il img-to-img (lo standard era text-to-img)
             sd_pipe = StableDiffusionInvEnhancePipeline.from_pipe(base_pipe)
         else:
             raise ValueError(f"Unsupported base model: {self.configs.base_model}!")
         sd_pipe.to(f"cuda")
         if self.configs.sliced_vae:
+            # Slicing e' tipo patch, ma il dato viene suddiviso e processato 1(o+) canali per volta
             sd_pipe.vae.enable_slicing()
         if self.configs.tiled_vae:
+            # Divisioni in patch nel latent_space? non so dove venga utilizzato
             sd_pipe.vae.enable_tiling()
             sd_pipe.vae.tile_latent_min_size = self.configs.latent_tiled_size
             sd_pipe.vae.tile_sample_min_size = self.configs.sample_tiled_size
         if self.configs.gradient_checkpointing_vae:
+            # Ottimizzazioni per la memoria
             self.write_log(f"Activating gradient checkpoing for vae...")
             sd_pipe.vae._set_gradient_checkpointing(sd_pipe.vae.encoder, True)
             sd_pipe.vae._set_gradient_checkpointing(sd_pipe.vae.decoder, True)
 
         model_configs = self.configs.model_start
         params = model_configs.get('params', dict)
+        # Carica il NoisePrediction con i relativi parametri
         model_start = util_common.get_obj_from_str(model_configs.target)(**params)
         model_start.cuda()
+        # prende i pesi di noise-predictor-sd-turbo-v5
         ckpt_path = model_configs.get('ckpt_path')
         assert ckpt_path is not None
         self.write_log(f"Loading started model from {ckpt_path}...")
         state = torch.load(ckpt_path, map_location=f"cuda")
         if 'state_dict' in state:
             state = state['state_dict']
+        # inserisce i pesi dentro al NoisePredictor
         util_net.reload_model(model_start, state)
         self.write_log(f"Loading Done")
         model_start.eval()
+        # Inserisce il NoisePredictor dentro la pipeline generale
         setattr(sd_pipe, 'start_noise_predictor', model_start)
 
         self.sd_pipe = sd_pipe
@@ -111,28 +125,37 @@ class BaseSampler:
 class InvSamplerSR(BaseSampler):
     @torch.no_grad()
     def sample_func(self, im_cond):
+        # Data l'immagine come tensore, effettua tutte le operazioni e ritorna l'upscalata
+
         '''
         Input:
             im_cond: b x c x h x w, torch tensor, [0,1], RGB
         Output:
             xt: h x w x c, numpy array, [0,1], RGB
         '''
+
+        # FIXME: Cosa sono questi parametri positive e negative?
         if self.configs.cfg_scale > 1.0:
             negative_prompt = [_negative,]*im_cond.shape[0]
         else:
             negative_prompt = None
 
+        # Calcolo dimensioni dell'HQ da ricostruire
         ori_h_lq, ori_w_lq = im_cond.shape[-2:]
-        ori_w_hq = ori_w_lq * self.configs.basesr.sf
+        ori_w_hq = ori_w_lq * self.configs.basesr.sf # SF: scaling factor
         ori_h_hq = ori_h_lq * self.configs.basesr.sf
-        vae_sf = (2 ** (len(self.sd_pipe.vae.config.block_out_channels) - 1))
+        vae_sf = (2 ** (len(self.sd_pipe.vae.config.block_out_channels) - 1)) # fattore downscale dato dal laten_space (8x)
         if hasattr(self.sd_pipe, 'unet'):
-            diffusion_sf = (2 ** (len(self.sd_pipe.unet.config.block_out_channels) - 1))
+            diffusion_sf = (2 ** (len(self.sd_pipe.unet.config.block_out_channels) - 1)) # Altro fattore di scale dato dalla unet nel processare il dato nel latent space (8x)
         else:
             diffusion_sf = self.sd_pipe.transformer.patch_size
-        mod_lq = vae_sf // self.configs.basesr.sf * diffusion_sf
-        idle_pch_size = self.configs.basesr.chopping.pch_size
 
+        mod_lq = vae_sf // self.configs.basesr.sf * diffusion_sf 
+        # calcolo quanti pixel della LQ corrispondono a uno nel diffusion_latent (1 pixel latent_diff = 16x16 nella LQ)
+        # prima 1 pixel LQ a quanti corrisponde nel latent_vae (che pero' si trova in HQ), e poi moltiplico ulteriorimente per lo scaling del diffusion 
+        
+        idle_pch_size = self.configs.basesr.chopping.pch_size # patch size impostata in cui verra' suddivisa l'immagine
+        
         if min(im_cond.shape[-2:]) >= idle_pch_size:
             pad_h_up = pad_w_left = 0
         else:
@@ -142,8 +165,9 @@ class InvSamplerSR(BaseSampler):
                 pad_w_left = max(min((idle_pch_size - im_cond.shape[-1]) // 2, im_cond.shape[-1]-1), 0)
                 pad_w_right = max(min(idle_pch_size - im_cond.shape[-1] - pad_w_left, im_cond.shape[-1]-1), 0)
                 im_cond = F.pad(im_cond, pad=(pad_w_left, pad_w_right, pad_h_up, pad_h_down), mode='reflect')
-
+        
         if im_cond.shape[-2] == idle_pch_size and im_cond.shape[-1] == idle_pch_size:
+            # Se l'immagine e' esattamente della patch size desiderata
             target_size = (
                 im_cond.shape[-2] * self.configs.basesr.sf,
                 im_cond.shape[-1] * self.configs.basesr.sf
@@ -157,8 +181,8 @@ class InvSamplerSR(BaseSampler):
                 guidance_scale=self.configs.cfg_scale,
                 output_type="pt",    # torch tensor, b x c x h x w, [0, 1]
             ).images
-        else:
-            if not (im_cond.shape[-2] % mod_lq == 0 and im_cond.shape[-1] % mod_lq == 0):
+        else: # Altrimenti spezzala in patch processabili
+            if not (im_cond.shape[-2] % mod_lq == 0 and im_cond.shape[-1] % mod_lq == 0): # fa il pad della LQ per essere un multiplo della mod_lq
                 target_h_lq = math.ceil(im_cond.shape[-2] / mod_lq) * mod_lq
                 target_w_lq = math.ceil(im_cond.shape[-1] / mod_lq) * mod_lq
                 pad_h = target_h_lq - im_cond.shape[-2]
@@ -168,12 +192,13 @@ class InvSamplerSR(BaseSampler):
             im_spliter = util_image.ImageSpliterTh(
                 im_cond,
                 pch_size=idle_pch_size,
-                stride= int(idle_pch_size * 0.50),
+                stride= int(idle_pch_size * 0.50), # fa uno stride di mezza patch cosi da avere overlap ed evitare border artifacts
                 sf=self.configs.basesr.sf,
                 weight_type=self.configs.basesr.chopping.weight_type,
                 extra_bs=self.configs.basesr.chopping.extra_bs,
             )
-            for im_lq_pch, index_infos in im_spliter:
+            for patch_idx, (im_lq_pch, index_infos) in enumerate(im_spliter):
+                print(f"Processing patches {patch_idx}-{patch_idx+self.configs.basesr.chopping.extra_bs} of {len(im_spliter)}", flush=True)
                 target_size = (
                     im_lq_pch.shape[-2] * self.configs.basesr.sf,
                     im_lq_pch.shape[-1] * self.configs.basesr.sf,
@@ -183,26 +208,27 @@ class InvSamplerSR(BaseSampler):
                 # end = torch.cuda.Event(enable_timing=True)
                 # start.record()
 
+                # gli passo una batch di patch e lui ritorna gli upscalati
                 res_sr_pch = self.sd_pipe(
                     image=im_lq_pch.type(torch.float16),
                     prompt=[_positive, ]*im_lq_pch.shape[0],
                     negative_prompt=negative_prompt,
                     target_size=target_size,
                     timesteps=self.configs.timesteps,
-                    guidance_scale=self.configs.cfg_scale,
+                    guidance_scale=self.configs.cfg_scale, # l'importanza di seguire i prompt (1 default, seguirli fortemente)
                     output_type="pt",    # torch tensor, b x c x h x w, [0, 1]
                 ).images
 
                 # end.record()
                 # torch.cuda.synchronize()
                 # print(f"Time: {start.elapsed_time(end):.6f}")
-
-                im_spliter.update(res_sr_pch, index_infos)
-            res_sr = im_spliter.gather()
+                
+                im_spliter.update(res_sr_pch, index_infos) # salva le patch HQ nello splitter per poi combinarle
+            res_sr = im_spliter.gather() # ritorna l'intera immagine HQ 
 
         pad_h_up *= self.configs.basesr.sf
         pad_w_left *= self.configs.basesr.sf
-        res_sr = res_sr[:, :, pad_h_up:ori_h_hq+pad_h_up, pad_w_left:ori_w_hq+pad_w_left]
+        res_sr = res_sr[:, :, pad_h_up:ori_h_hq+pad_h_up, pad_w_left:ori_w_hq+pad_w_left] # rimuovo il pad aggiunto prima
 
         if self.configs.color_fix:
             im_cond_up = F.interpolate(
@@ -260,11 +286,14 @@ class InvSamplerSR(BaseSampler):
                     save_path = str(out_path / f"{im_name}.png")
                     util_image.imwrite(res[jj], save_path, dtype_in='float32')
         else:
+            # Carica l'immagine e la trasforma in un tensore
             im_cond = util_image.imread(in_path, chn='rgb', dtype='float32')  # h x w x c
             im_cond = util_image.img2tensor(im_cond).cuda()                   # 1 x c x h x w
 
+            # Qua dentro fa tutto
             image = self.sample_func(im_cond).squeeze(0)
 
+            # Salva
             save_path = str(out_path / f"{in_path.stem}.png")
             util_image.imwrite(image, save_path, dtype_in='float32')
 

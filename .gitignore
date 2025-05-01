@@ -176,3 +176,11 @@ cython_debug/
 # Project Ignore
 crops/
 venv10/
+
+# InvSR Ingores
+InvSR/outfolder
+InvSR/invsr
+
+InvSR/basicsr/data/meta_info
+InvSR/weights
+InvSR/basicsr/data/meta_info
