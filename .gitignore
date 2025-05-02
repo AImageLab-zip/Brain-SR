@@ -176,6 +176,8 @@ cython_debug/
 # Project Ignore
 crops/
 venv10/
+logs/
+dataset_test/
 
 # InvSR Ingores
 InvSR/outfolder
@@ -183,4 +185,6 @@ InvSR/invsr
 
 InvSR/basicsr/data/meta_info
 InvSR/weights
-InvSR/basicsr/data/meta_info
+
+InvSR/core.2850607
+InvSR/core.2852772

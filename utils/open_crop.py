@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def open_low_res(img_path: str) -> (np.ndarray, np.ndarray):
+def open_low_res(img_path: str) -> tuple[np.ndarray, np.ndarray]:
     proxy_images = nib.load(img_path)
     images_array = np.array(proxy_images.dataobj)
 
@@ -18,7 +18,7 @@ def open_low_res(img_path: str) -> (np.ndarray, np.ndarray):
     return images_array, low_res_affine
 
 
-def open_high_res(img_path: str, alignment_matrix_path: str) -> (tiff.TiffPage, np.ndarray):
+def open_high_res(img_path: str, alignment_matrix_path: str) -> tuple[tiff.TiffPage, np.ndarray]:
     with tiff.TiffFile(img_path) as tif:
         high_res_image_page = tif.pages[0]
 

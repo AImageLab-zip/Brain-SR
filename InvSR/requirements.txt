@@ -10,3 +10,4 @@ python-box
 omegaconf
 loguru
 einops
+numpy<2.0.0

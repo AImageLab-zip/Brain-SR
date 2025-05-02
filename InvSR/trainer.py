@@ -496,8 +496,11 @@ class TrainerBase:
         self.resume_from_ckpt()  # resume if necessary
 
         self.model.train()
+
         num_iters_epoch = math.ceil(len(self.datasets['train']) / self.configs.train.batch)
         for ii in range(self.iters_start, self.configs.train.iterations):
+            print("Processing Iteration: ", ii)
+            
             self.current_iters = ii + 1
 
             # prepare data
@@ -515,6 +518,7 @@ class TrainerBase:
                 'val' in self.dataloaders and
                 self.rank == 0
                 ):
+                print("Validation...")
                 self.validation()
 
             #update learning rate
@@ -522,6 +526,7 @@ class TrainerBase:
 
             # save checkpoint
             if (ii+1) % self.configs.train.save_freq == 0 and self.rank == 0:
+                print("Saving checkpoint...")
                 self.save_ckpt()
 
             if (ii+1) % num_iters_epoch == 0 and self.sampler is not None:
@@ -867,7 +872,7 @@ class TrainerBaseSR(TrainerBase):
 
             batch = {'lq':self.lq, 'gt':self.gt, 'gt_latent':self.gt_latent, 'txt':self.txt}
         elif phase == 'val':
-            resolution = self.configs.data.train.params.gt_size // self.configs.degradation.sf
+            #resolution = self.configs.data.train.params.gt_size // self.configs.degradation.sf
             batch = {}
             batch['lq'] = data['lq'].cuda()
             if 'gt' in data:
@@ -875,6 +880,11 @@ class TrainerBaseSR(TrainerBase):
             batch['txt'] = [_positive, ] * data['lq'].shape[0]
         else:
             batch = {key:value.cuda().to(dtype=torch.float32) for key, value in data.items()}
+            batch['txt'] = [_positive, ] * data['lq'].shape[0]
+            # TODO: vedere di modificare questo e calcolarli prima
+            batch['gt_latent'] = self.encode_first_stage(
+                    batch['gt'], center_input_sample=True, deterministic=False,
+                )
 
         return batch
 
@@ -973,6 +983,7 @@ class TrainerBaseSR(TrainerBase):
             tt_list = []
             prompt_embeds_list = []
         for jj in range(0, current_bs, micro_bs):
+            print("Processing MicroBatch: ", jj)
             micro_data = {key:value[jj:jj+micro_bs] for key, value in data.items()}
             last_batch = (jj+micro_bs >= current_bs)
             if last_batch or self.num_gpus <= 1:
@@ -992,6 +1003,7 @@ class TrainerBaseSR(TrainerBase):
             self.optimizer.step()
 
         # update discriminator
+        # AL MOMENTO NON ALLENATO (no ldis nel config)
         if (self.configs.train.loss_coef.get('ldis', 0) > 0 and
             (self.current_iters < self.configs.train.dis_init_iterations
             or self.current_iters % self.configs.train.dis_update_freq == 0)
@@ -1248,9 +1260,14 @@ class TrainerBaseSR(TrainerBase):
         ) - 1
 
         with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
+            # Fa runnare il Noise Predictor e ottiene il noise
             model_pred = self.model(
                 micro_data['lq'], tt, sample_posterior=False, center_input_sample=True,
             )
+            # Li dentro passa al latent space, applica il noise alla lq e fa uno step di unet
+            # ritorna z0_pred -> immagine "pulita" di uno step
+            # z0_lq -> immagine LQ nel latent space
+            # zt_noisy_pred -> immagine LQ con noise predetto
             z0_pred, zt_noisy_pred, z0_lq = self.sd_forward_step(
                 prompt=micro_data['txt'],
                 latents_hq=micro_data['gt_latent'],
@@ -1261,6 +1278,7 @@ class TrainerBaseSR(TrainerBase):
             )
             # diffusion loss
             if loss_coef.get('ldif', 0) > 0:
+                # Calcolo il MSE con la gt_latent
                 if self.configs.train.loss_type == 'L2':
                     ldif_loss = F.mse_loss(z0_pred, z0_gt, reduction='none')
                 elif self.configs.train.loss_type == 'L1':
@@ -1393,6 +1411,7 @@ class TrainerBaseSR(TrainerBase):
                 mean, std = model_pred.mean, model_pred.std
                 zt_noisy = latents + mean + sigmas * std * torch.randn_like(latents)
             else:
+                # Viene eseguito questo
                 zt_noisy = latents + sigmas * model_pred.sample()
 
         return zt_noisy
@@ -1474,12 +1493,14 @@ class TrainerSDTurboSR(TrainerBaseSR):
         # Prepare input for SD
         height, width = image_hq.shape[-2:]
         if self.configs.train.start_mode:
+            # Scala la lq ingrandendola e passa al latent space
             image_lq_up = F.interpolate(image_lq, size=(height, width), mode='bicubic')
             zt_clean = self.encode_first_stage(
                 image_lq_up, center_input_sample=True,
                 deterministic=self.configs.train.loss_coef.get('rkl', 0) > 0,
             )
         else:
+            # skippato che start_mode e' true
             if latents_hq is None:
                 zt_clean = self.encode_first_stage(
                     image_hq, center_input_sample=True, deterministic=False,
@@ -1487,6 +1508,7 @@ class TrainerSDTurboSR(TrainerBaseSR):
             else:
                 zt_clean = latents_hq
 
+        # Aggiunge il rumore predetto alla lq
         sigmas = append_dims(sigmas, zt_clean.ndim)
         zt_noisy = self.add_noise(zt_clean, sigmas, model_pred)
 

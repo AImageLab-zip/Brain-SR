@@ -57,20 +57,38 @@ def get_parser(**parser_kwargs):
             default='False',
             help="Text Prompt",
             )
+    
+    parser.add_argument(
+        "--remote-debug", action="store_true"
+    )
+
     args = parser.parse_args()
 
     return args
 
+def activate_remote_debug():
+
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))  # Accept connections on all interfaces
+    print("Waiting for debugger attach...")
+    debugpy.wait_for_client()
+
 if __name__ == "__main__":
     args = get_parser()
 
+    if args.remote_debug:
+        print("Activating Remote Debugging!")
+        activate_remote_debug()
+        print("Remote Debugging Activated!")
+    
     configs = OmegaConf.load(args.cfg_path)
-    if args.ldif > 0:
-        configs.train.loss_coef.ldif = args.ldif
-    if args.ldis > 0:
-        configs.train.loss_coef.ldis = args.ldis
-    if args.llpips > 0:
-        configs.train.loss_coef.llpips = args.llpips
+    # Disabilitato perche aggiungeva altri tipi di loss
+    #if args.ldif > 0:
+    #    configs.train.loss_coef.ldif = args.ldif
+    #if args.ldis > 0:
+    #    configs.train.loss_coef.ldis = args.ldis
+    #if args.llpips > 0:
+    #    configs.train.loss_coef.llpips = args.llpips
     configs.train.use_text = args.use_text
 
     # merge args to config
