@@ -31,7 +31,6 @@
             "args": [
                 "--save_dir", "../logs",
                 "--cfg_path", "configs/custom-test-sr.yaml",
-                "--resume", "../logs/2025-05-02-17-57/ckpts/model_14.pth"
             ]
         },
         {

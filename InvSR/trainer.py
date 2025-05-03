@@ -969,6 +969,8 @@ class TrainerBaseSR(TrainerBase):
         return g_loss
 
     def training_step(self, data):
+        # Processa un Batch (sia per generatore che discriminatore)
+
         current_bs = data['gt'].shape[0]
         micro_bs = self.configs.train.microbatch
         num_grad_accumulate = math.ceil(current_bs / micro_bs)
@@ -996,14 +998,18 @@ class TrainerBaseSR(TrainerBase):
                 tt_list.append(tt)
                 prompt_embeds_list.append(self.prompt_embeds.detach())
 
+        # Dopo aver processato ogni mini-batch fa lo step di optimize
         if self.configs.train.use_amp:
+            # Amp Scale moltiplica le loss e gradienti (x1024 tipo)
+            # cosi anche se sono in FP16 riescono a rappresentare bene numeri piccoli
             self.amp_scaler.step(self.optimizer)
             self.amp_scaler.update()
         else:
             self.optimizer.step()
 
         # update discriminator
-        # AL MOMENTO NON ALLENATO (no ldis nel config)
+        # Per le prime "self.configs.train.dis_init_iterations" alleno sempre il discriminatore
+        # e non lo uso pero' nel calcolo della loss del generatore
         if (self.configs.train.loss_coef.get('ldis', 0) > 0 and
             (self.current_iters < self.configs.train.dis_init_iterations
             or self.current_iters % self.configs.train.dis_update_freq == 0)
@@ -1249,6 +1255,8 @@ class TrainerBaseSR(TrainerBase):
         torch.cuda.empty_cache()
 
     def backward_step(self, micro_data, num_grad_accumulate):
+        # Processa un mini-batch del Generatore
+
         loss_coef = self.configs.train.loss_coef
 
         losses = {}
@@ -1312,6 +1320,7 @@ class TrainerBaseSR(TrainerBase):
                     losses['ldis'] = torch.zeros((z0_gt.shape[0], ), dtype=torch.float32).cuda()
             # perceptual loss
             if loss_coef.get('llpips', 0) > 0:
+                # Calcolo la loss LPIP con il modello finetunato. Resituisce un valore per ogni img nel minibatch
                 losses['llpips'] = self.llpips_loss(z0_pred, z0_gt).view(-1) * loss_coef['llpips']
 
             for key in ['ldif', 'kl', 'rkl', 'pkl', 'ldis', 'llpips']:
@@ -1330,11 +1339,20 @@ class TrainerBaseSR(TrainerBase):
         return losses, z0_pred, zt_noisy_pred, tt
 
     def dis_backward_step(self, target, inputs, tt, prompt_embeds):
+        # Processa un Mini-Batch per il discriminatore
+        # target: immagine HQ nel latent space (batch of)
+        # inputs: immagini LQ processate dal generatore (latent, e batch)
+
+        # Il discriminatore e' una u-net
+        # ritorna una lista di 4 feature maps (uno a mid e gli altri 3 sono dopo gli up-block)
+
         with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
             logits_real = self.discriminator(target, tt, prompt_embeds)
             inputs = inputs.clamp(min=_Latent_bound['min'], max=_Latent_bound['max'])
             logits_fake = self.discriminator(inputs, tt, prompt_embeds)
 
+            # Calcolo la Hing_loss per ogni livello ritornato
+            # il .mean() fa la media per ciascun input nel mini-batch
             loss = hinge_d_loss(logits_real, logits_fake).mean()
 
         if self.amp_scaler_dis is None:
@@ -1635,9 +1653,13 @@ def hinge_d_loss(
         logits_real: Union[torch.Tensor, List[torch.Tensor,]],
         logits_fake: Union[torch.Tensor, List[torch.Tensor,]],
     ):
+
+    # Per ogni feature-map ritornata dal discriminatore calcola la hinge_loss
+    # poi fa la media per tutti i livelli (ritorna un valore per ogni elemento del mini-batch)
+
     def _hinge_d_loss(logits_real, logits_fake):
-        loss_real = F.relu(1.0 - logits_real)
-        loss_fake = F.relu(1.0 + logits_fake)
+        loss_real = F.relu(1.0 - logits_real) # hinge loss per la real (spinge a >1)
+        loss_fake = F.relu(1.0 + logits_fake) # hinge loss per la generata (sping a <-1)
         d_loss = 0.5 * (loss_real + loss_fake)
         loss = d_loss.mean(dim=list(range(1, logits_real.ndim)))
 

@@ -42,13 +42,13 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
             "--llpips",
             type=float,
-            default=2.0,
+            default=0,
             help="Loss coefficient for latent lpips",
             )
     parser.add_argument(
             "--ldis",
             type=float,
-            default=0.1,
+            default=0,
             help="Loss coefficient for latent discriminator",
             )
     parser.add_argument(
@@ -82,7 +82,7 @@ if __name__ == "__main__":
         print("Remote Debugging Activated!")
     
     configs = OmegaConf.load(args.cfg_path)
-    # Disabilitato perche aggiungeva altri tipi di loss
+    # Li setto dal config
     #if args.ldif > 0:
     #    configs.train.loss_coef.ldif = args.ldif
     #if args.ldis > 0:

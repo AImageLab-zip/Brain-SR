@@ -200,10 +200,10 @@ train:
   # discriminator
   lr_dis: 5e-5                  # learning rate for dicriminator
   weight_decay_dis: 1e-3        # weight decay for dicriminator
-  dis_init_iterations: 10000    # iterations used for updating the discriminator
+  dis_init_iterations: 0    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 8               
+  batch: 4               
   microbatch: 2 
   num_workers: 4
   prefetch_factor: 2            
@@ -221,6 +221,8 @@ train:
   loss_type: L2
   loss_coef:
     ldif: 1.0
+    ldis: 0.1
+    llpips: 0.5
   timesteps: [250, 200, 150, 100]
   num_inference_steps: 5
   # mixed precision
