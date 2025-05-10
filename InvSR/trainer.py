@@ -1605,6 +1605,7 @@ class TrainerSDTurboSR(TrainerBaseSR):
         latent_timestep = timesteps[:1].repeat(batch_size)
 
         # Prepare latent variables
+        # CON start_mode = True -> qua include gia' il noise predetto
         height, width = target_size
         latents = self.prepare_lq_latents(image_lq, latent_timestep.long(), height, width, start_noise_predictor)
 
@@ -1618,6 +1619,7 @@ class TrainerSDTurboSR(TrainerBaseSR):
         for i, t in enumerate(timesteps):
             latents_scaled = self.sd_pipe.scheduler.scale_model_input(latents, t)
 
+            # Calcolo come sarebbe stata l'immagine dopo uno step, senza il noise_predictor
             # predict the noise residual
             eps_pred = self.sd_pipe.unet(
                 latents_scaled,
@@ -1635,6 +1637,7 @@ class TrainerSDTurboSR(TrainerBaseSR):
                 noise = intermediate_noise_predictor(image_lq, t_next, center_input_sample=True)
             else:
                 noise = None
+            # Qua invece prende il noise predetto, gli eps predetti dallo step fa uno step
             extra_step_kwargs['noise'] = noise
             latents = self.sd_pipe.scheduler.step(eps_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 

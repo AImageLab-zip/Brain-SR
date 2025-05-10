@@ -170,7 +170,7 @@ data:
           mean: 0.0
           std: 1.0
       im_exts: png
-      length: 16
+      length: 4
       recursive: False
   val:
     type: base
@@ -186,7 +186,7 @@ data:
           mean: 0.0
           std: 1.0
       im_exts: png
-      length: 4
+      length: 1
       recursive: False
 
 train:
@@ -203,8 +203,8 @@ train:
   dis_init_iterations: 0    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 4               
-  microbatch: 2 
+  batch: 1               
+  microbatch: 1 
   num_workers: 4
   prefetch_factor: 2            
   use_text: True

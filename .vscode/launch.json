@@ -34,6 +34,19 @@
             ]
         },
         {
+            "name": "Debug03 Training",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/main.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "python": "/homes/gcasari/bigbrain/custom_python.sh",
+            "args": [
+                "--save_dir", "../logs",
+                "--cfg_path", "configs/custom-test-sr.yaml",
+            ]
+        },
+        {
             "name": "Attach to Remote Debugpy",
             "type": "debugpy",
             "request": "attach",
