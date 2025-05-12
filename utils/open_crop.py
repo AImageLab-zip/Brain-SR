@@ -50,10 +50,13 @@ def select_region_of_interest(y_start_index: int) -> dict:
 
     #min_x, max_x = 3500, 3600
     #min_z, max_z = 3700, 3800
-    min_x, max_x = 3400, 3700
-    min_z, max_z = 3600, 3900
+    # min_x, max_x = 3300, 3500
+    # min_z, max_z = 3500, 3700
     #min_x, max_x = 0, 4000
     #min_z, max_z = 1000, 2000
+
+    min_x, max_x = 3200, 3328
+    min_z, max_z = 768, 896
 
     corners = {
         'A': [min_x, y_start_index, min_z],
@@ -92,8 +95,11 @@ def compute_high_res_crop_indices(corners: dict, img_shape: tuple) -> tuple:
     min_z, max_z = corners['A'][2], corners['D'][2]
 
     # Flip indici perche l'asse Z e' invertito nell'immagine (e quindi max<->min)
-    new_min_x = img_shape[0] - max_x
-    new_max_x = img_shape[0] - min_x
+    #new_min_x = img_shape[0] - max_x
+    #new_max_x = img_shape[0] - min_x
+
+    # Faccio il filp dell'immagine prima di cropparla (se si fa dopo, usare il codice sopra)
+    new_min_x, new_max_x = min_x, max_x 
 
     # Aggiusto gli indici ritornati dalla matrice di trasformazione,
     # perche' sono invertiti
@@ -111,11 +117,13 @@ def crop_high_res(high_res_img: np.ndarray, corners: dict) -> np.ndarray:
 
     high_res_img = high_res_img.asarray()
 
+    high_res_img = np.flip(high_res_img, axis=0)
+
     # Attenzione che qua croppo [X, Z] e non [Z, X]
     high_res_crop = high_res_img[min_x:max_x, min_z:max_z]
 
     # Flip the image
-    high_res_crop = np.flip(high_res_crop, axis=0)
+    #high_res_crop = np.flip(high_res_crop, axis=0)
 
     return high_res_crop
 

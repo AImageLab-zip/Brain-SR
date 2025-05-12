@@ -159,34 +159,34 @@ data:
   train:
     type: base
     params:
-      dir_path: /homes/gcasari/bigbrain/dataset_test/imagenet512/lq
+      dir_path: /homes/gcasari/bigbrain/crops/crop_test/low
       transform_type: default
       transform_kwargs:
           mean: 0.0
           std: 1.0
-      extra_dir_path: /homes/gcasari/bigbrain/dataset_test/imagenet512/gt
+      extra_dir_path: /homes/gcasari/bigbrain/crops/crop_test/high
       extra_transform_type: default
       extra_transform_kwargs:
           mean: 0.0
           std: 1.0
       im_exts: png
-      length: 4
+      length: 10
       recursive: False
   val:
     type: base
     params:
-      dir_path: /homes/gcasari/bigbrain/dataset_test/imagenet512/lq
+      dir_path: /homes/gcasari/bigbrain/crops/crop_test/low
       transform_type: default
       transform_kwargs:
           mean: 0.0
           std: 1.0
-      extra_dir_path: /homes/gcasari/bigbrain/dataset_test/imagenet512/gt
+      extra_dir_path: /homes/gcasari/bigbrain/crops/crop_test/high
       extra_transform_type: default
       extra_transform_kwargs:
           mean: 0.0
           std: 1.0
       im_exts: png
-      length: 1
+      length: 2
       recursive: False
 
 train:
@@ -203,8 +203,8 @@ train:
   dis_init_iterations: 0    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 1               
-  microbatch: 1 
+  batch: 4               
+  microbatch: 2 
   num_workers: 4
   prefetch_factor: 2            
   use_text: True
@@ -234,7 +234,7 @@ train:
   noise_detach: False
 
 validate:
-  batch: 2
+  batch: 1
   use_ema: True            
   log_freq: 4      # logging frequence
   val_y_channel: True
