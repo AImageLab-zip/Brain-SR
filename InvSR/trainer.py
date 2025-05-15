@@ -12,6 +12,8 @@ from omegaconf import OmegaConf
 from einops import rearrange
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import wandb
+
 from datapipe.datasets import create_dataset
 
 import torch
@@ -41,8 +43,9 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2im
 _base_seed = 10**6
 _INTERPOLATION_MODE = 'bicubic'
 _Latent_bound = {'min':-10.0, 'max':10.0}
-_positive= 'Cinematic, high-contrast, photo-realistic, 8k, ultra HD, ' +\
-           'meticulous detailing, hyper sharpness, perfect without deformations'
+_positive= "High-resolution histological brain tissue, accurate cellular structures, sharp cortical layers, " \
+            "precise anatomical detail, realistic staining patterns, microscopy-grade clarity, " \
+            "no artifacts, no hallucinated features, no stylization"
 _negative= 'Low quality, blurring, jpeg artifacts, deformed, over-smooth, cartoon, noisy,' +\
            'painting, drawing, sketch, oil painting'
 
@@ -115,11 +118,20 @@ class TrainerBase:
 
         # tensorboard logging
         log_dir = save_dir / 'tf_logs'
+
         self.tf_logging = self.configs.train.tf_logging
         if self.rank == 0 and self.tf_logging:
             if not log_dir.exists():
                 log_dir.mkdir()
             self.writer = SummaryWriter(str(log_dir))
+
+        # wandb logging
+        self.wandb_logging = self.configs.train.wandb_logging
+        if self.wandb_logging:
+            self.wandb_run = wandb.init(entity="infopz-team",
+                                    project="BigBrain",
+                                    config=OmegaConf.to_container(self.configs, resolve=True))
+        
 
         # checkpoint saving
         ckpt_dir = save_dir / 'ckpts'
@@ -150,6 +162,8 @@ class TrainerBase:
     def close_logger(self):
         if self.rank == 0 and self.tf_logging:
             self.writer.close()
+        if self.wandb_logging:
+            self.wandb_run.finish()
 
     def resume_from_ckpt(self):
         if self.configs.resume:
@@ -484,6 +498,40 @@ class TrainerBase:
     def validation(self):
         pass
 
+    def my_test_method(self):
+
+        from datapipe.datasets import get_transforms
+        import os
+        
+        basepath = "/homes/gcasari/bigbrain/crops/random_pick/"
+
+        f_list = os.listdir(basepath)
+
+        for f in f_list:
+            print("Processing", f)
+
+            imgpath = os.path.join(basepath, f)
+            im_base = util_image.imread(imgpath, chn='rgb', dtype='float32')
+            t = get_transforms("default", {'mean':0.0, 'std':1.0})
+            im_base = t(im_base)
+
+            im_base = im_base.unsqueeze(0).cuda()
+
+            im_latent = self.encode_first_stage(
+                        im_base, center_input_sample=True, deterministic=False,
+                    )
+
+            x0_recon = self.decode_first_stage(im_latent.detach())
+            
+            im_tensor = vutils.make_grid(x0_recon, nrow=1, normalize=True, scale_each=True) # c x H x W
+            
+            out_path = imgpath.replace(".png", "_recon.png")
+            im_np = im_tensor.cpu().permute(1,2,0).numpy()
+            util_image.imwrite(im_np, out_path)
+        
+        print()
+    
+
     def train(self):
         self.init_logger()       # setup logger: self.logger
 
@@ -496,6 +544,8 @@ class TrainerBase:
         self.resume_from_ckpt()  # resume if necessary
 
         self.model.train()
+
+        #self.my_test_method()
 
         num_iters_epoch = math.ceil(len(self.datasets['train']) / self.configs.train.batch)
         for ii in range(self.iters_start, self.configs.train.iterations):
@@ -585,6 +635,9 @@ class TrainerBase:
                     im_tensor,
                     self.log_step_img[phase],
                     )
+        if self.wandb_logging:
+            image = wandb.Image(im_tensor, caption=f"{phase}-{tag}-{self.log_step_img[phase]}")
+            self.wandb_run.log({f"image-{phase}-{tag}": image}, step=self.current_iters)
         if add_global_step:
             self.log_step_img[phase] += 1
 
@@ -616,8 +669,14 @@ class TrainerBase:
                 self.writer.add_scalar(tag, metrics, self.log_step[phase])
             if add_global_step:
                 self.log_step[phase] += 1
-        else:
-            pass
+        elif self.wandb_logging:
+            if isinstance(metrics, dict):
+                log_data = {f"{phase}/{tag}/{k}": v for k, v in metrics.items()}
+            else:
+                log_data = {f"{phase}/{tag}": metrics}
+            
+            self.wandb_run.log(log_data, step=self.current_iters)
+            
 
     def load_model(self, model, ckpt_path=None, tag='model'):
         if self.rank == 0:
@@ -1273,7 +1332,7 @@ class TrainerBaseSR(TrainerBase):
                 micro_data['lq'], tt, sample_posterior=False, center_input_sample=True,
             )
             # Li dentro passa al latent space, applica il noise alla lq e fa uno step di unet
-            # ritorna z0_pred -> immagine "pulita" di uno step
+            # ritorna z0_pred -> zt_noisy con 1 step di diffuser
             # z0_lq -> immagine LQ nel latent space
             # zt_noisy_pred -> immagine LQ con noise predetto
             z0_pred, zt_noisy_pred, z0_lq = self.sd_forward_step(
