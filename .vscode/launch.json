@@ -30,7 +30,7 @@
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
                 "--save_dir", "../logs",
-                "--cfg_path", "configs/custom-test-sr.yaml",
+                "--cfg_path", "configs/custom-test-sr.yaml"
             ]
         },
         {

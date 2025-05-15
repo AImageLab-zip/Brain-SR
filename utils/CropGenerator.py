@@ -243,9 +243,10 @@ class DatasetCropsGenerator():
         self.crop_config = crop_config
         self.data = []
 
-    def compute_list(self):
+    def compute_list(self, exclude_ids=[]):
         
         image_ids = [f[-9:-5] for f in os.listdir(self.lr_folder) if f.endswith('.mnc')]
+        image_ids = [image_id for image_id in image_ids if image_id not in exclude_ids]
 
         lr_files = [os.path.join(self.lr_folder, f"pm{image_id}o.mnc") for image_id in image_ids]
         hr_files = [os.path.join(self.hr_folder, f"B20_{image_id}.tif") for image_id in image_ids]
@@ -270,7 +271,6 @@ class DatasetCropsGenerator():
             lr_path = image["lr"]
             hr_affine_path = image["hr_affine"]
             hr_path = image["hr"]
-
             
             crop_generator = SingleImageCropGenerator(lr_path, hr_affine_path, hr_path, self.out_folder, self.crop_config)
 
@@ -285,11 +285,12 @@ class DatasetCropsGenerator():
 
 if __name__ == "__main__":
 
+    validation_names = ['2251', '2447', '6899', '5048', '4449', '2803', '3305', '1901', '0199', '4950']
 
     lr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/low_res_coronal_minc/"
     hr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/high_res_aligned/"
 
-    out_path = "/homes/gcasari/bigbrain/work_data/crops/random10/"
+    out_path = "/homes/gcasari/bigbrain/work_data/crops_datasets/train/"
 
     crop_config = CropConfig(
         lr_crop_size=128,
@@ -300,9 +301,11 @@ if __name__ == "__main__":
     )
 
     crop_generator = DatasetCropsGenerator(lr_path, hr_path, out_path, crop_config)
-    crop_generator.compute_list()
-    crop_generator.random_select(10)
+    crop_generator.compute_list(exclude_ids=validation_names)
+    crop_generator.random_select(90)
     crop_generator.generate_crops()
+
+    print("Crops generation completed!")
 
 
     # # Example single usage

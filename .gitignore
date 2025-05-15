@@ -189,3 +189,5 @@ InvSR/weights
 InvSR/core.2850607
 InvSR/core.2852772
 work_data
+InvSR/wandb/
+temp/
