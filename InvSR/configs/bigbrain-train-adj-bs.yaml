@@ -186,31 +186,31 @@ data:
           mean: 0
           std: 1
       im_exts: png
-      length: 500
+      length: 1000
       recursive: False
 
 train:
   # predict started inverser
   start_mode: True
   # learning rate
-  lr: 5e-5                      # learning rate 
-  lr_min: 5e-5                  # learning rate 
+  lr: 1e-4                      # learning rate 
+  lr_min: 1e-4                  # learning rate 
   lr_schedule: ~
   warmup_iterations: 2000
   # discriminator
   lr_dis: 5e-5                  # learning rate for dicriminator
   weight_decay_dis: 1e-3        # weight decay for dicriminator
-  dis_init_iterations: 10000    # iterations used for updating the discriminator
+  dis_init_iterations: 1500    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 16               
-  microbatch: 4 
+  batch: 64               
+  microbatch: 16 
   num_workers: 4
   prefetch_factor: 2            
   use_text: True
   # optimization settings
   weight_decay: 0               
-  ema_rate: 0.999
+  ema_rate: 0.0
   iterations: 200000            # total iterations
   # logging
   save_freq: 1000               # ogni quanto fa la validation
@@ -221,9 +221,9 @@ train:
   # loss 
   loss_type: L2
   loss_coef:
-    ldif: 1.0
-    #ldis: 0.1
-    #llpips: 0.5
+    ldif: 0.8
+    ldis: 0.3
+    llpips: 0.5
   timesteps: [100]
   num_inference_steps: 1
   # mixed precision
@@ -235,7 +235,7 @@ train:
   noise_detach: False
 
 validate:
-  batch: 4
-  use_ema: True            
+  batch: 32
+  use_ema: False            
   log_freq: 100      # logging frequence
   val_y_channel: True

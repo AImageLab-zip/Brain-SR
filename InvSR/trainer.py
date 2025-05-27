@@ -3,6 +3,7 @@
 # Power by Zongsheng Yue 2022-05-18 13:04:06
 
 import os, sys, math, time, random, datetime
+import shutil
 import numpy as np
 from box import Box
 from pathlib import Path
@@ -91,15 +92,36 @@ class TrainerBase:
         torch.manual_seed(seed)
 
     def init_logger(self):
+
+        # wandb logging
+        self.wandb_logging = self.configs.train.wandb_logging
+        if self.wandb_logging:
+            self.wandb_run = wandb.init(entity="infopz-team",
+                                    project="BigBrain",
+                                    config=OmegaConf.to_container(self.configs, resolve=True))
+        
+
         if self.configs.resume:
             assert self.configs.resume.endswith(".pth")
             save_dir = Path(self.configs.resume).parents[1]
             project_id = save_dir.name
         else:
             project_id = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+
+            if self.wandb_logging:
+                current_day = datetime.datetime.now().strftime("%Y-%m-%d")
+                project_id = f"{current_day}_{self.wandb_run.name}"
+
             save_dir = Path(self.configs.save_dir) / project_id
             if not save_dir.exists() and self.rank == 0:
                 save_dir.mkdir(parents=True)
+        
+        # copy config into save_dir
+        cfg_path = os.path.join("/homes/gcasari/bigbrain/InvSR/", self.configs.cfg_path)
+        save_path = os.path.join(save_dir, "config.yaml")
+        if not os.path.exists(save_path):
+            # TODO: fixme, se il job non parte subito il file potrebbe essere non allineato
+            shutil.copy(cfg_path, save_path)
 
         # setting log counter
         if self.rank == 0:
@@ -124,14 +146,6 @@ class TrainerBase:
             if not log_dir.exists():
                 log_dir.mkdir()
             self.writer = SummaryWriter(str(log_dir))
-
-        # wandb logging
-        self.wandb_logging = self.configs.train.wandb_logging
-        if self.wandb_logging:
-            self.wandb_run = wandb.init(entity="infopz-team",
-                                    project="BigBrain",
-                                    config=OmegaConf.to_container(self.configs, resolve=True))
-        
 
         # checkpoint saving
         ckpt_dir = save_dir / 'ckpts'
@@ -1675,6 +1689,8 @@ class TrainerSDTurboSR(TrainerBaseSR):
 
         x0_progressive = []
         images_progressive = []
+        # x0 rappresenta l'immagine finale predetta basandoci sul latent attuale
+        # images_progressive rappresenta l'immagine al tempo t dopo il denoising
         for i, t in enumerate(timesteps):
             latents_scaled = self.sd_pipe.scheduler.scale_model_input(latents, t)
 

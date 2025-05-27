@@ -30,7 +30,32 @@
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
                 "--save_dir", "../logs",
-                "--cfg_path", "configs/custom-test-sr.yaml"
+                "--cfg_path", "configs/custom-test-sr.yaml",
+            ]
+        },
+        {
+            "name": "Debug Nico",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/main.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--save_dir", "../logs",
+                "--cfg_path", "configs/bigbrain-train-adj-bs.yaml",
+            ]
+        },
+        {
+            "name": "Debug Resume Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/main.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--save_dir", "../logs",
+                "--cfg_path", "configs/bigbrain-train.yaml",
+                "--resume", "../logs/2025-05-15-charmed-elevator-17/ckpts/model_11000.pth"
             ]
         },
         {
@@ -54,7 +79,7 @@
                 "host": "localhost",
                 "port": 5678
             },
-            "justMyCode": false
+            "justMyCode": "false"
         }
     ]
 }

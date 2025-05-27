@@ -90,6 +90,7 @@ if __name__ == "__main__":
     #if args.llpips > 0:
     #    configs.train.loss_coef.llpips = args.llpips
     configs.train.use_text = args.use_text
+    configs.cfg_path = args.cfg_path
 
     # merge args to config
     for key in vars(args):

@@ -213,8 +213,8 @@ train:
   ema_rate: 0.999
   iterations: 200000            # total iterations
   # logging
-  save_freq: 2               # ogni quanto fa la validation
-  log_freq: [2, 2]         # [training loss, training images, val images]
+  save_freq: 6               # ogni quanto fa la validation
+  log_freq: [2, 4]         # [training loss, training images, val images]
   local_logging: True           # manually save images
   tf_logging: False             # tensorboard logging
   wandb_logging: True
