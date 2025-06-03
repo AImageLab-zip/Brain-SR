@@ -93,35 +93,48 @@ class TrainerBase:
 
     def init_logger(self):
 
-        # wandb logging
-        self.wandb_logging = self.configs.train.wandb_logging
-        if self.wandb_logging:
-            self.wandb_run = wandb.init(entity="infopz-team",
-                                    project="BigBrain",
-                                    config=OmegaConf.to_container(self.configs, resolve=True))
-        
-
+        # set run_name and save_dir
         if self.configs.resume:
-            assert self.configs.resume.endswith(".pth")
-            save_dir = Path(self.configs.resume).parents[1]
-            project_id = save_dir.name
+
+            # se passo anche la stringa corrispondente al checkpoint
+            if isinstance(self.configs.resume, str):
+                assert self.configs.resume.endswith(".pth")
+                save_dir = Path(self.configs.resume).parent.parent
+                run_name = save_dir.name
+            
+            # se passo solo il flag resume, prendo il nome della cartella
+            else:
+                assert isinstance(self.configs.run_name, str), "If you want to resume training, please provide the runName or the checkpoint file."
+                run_name = self.configs.run_name
+                save_dir = Path(self.configs.save_dir) / Path(run_name)
+            
         else:
-            project_id = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
 
-            if self.wandb_logging:
-                current_day = datetime.datetime.now().strftime("%Y-%m-%d")
-                project_id = f"{current_day}_{self.wandb_run.name}"
-
-            save_dir = Path(self.configs.save_dir) / project_id
+            run_name = self.configs.get('run_name', None)
+            if run_name is None:
+                run_name = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")
+            save_dir = Path(self.configs.save_dir) / Path(run_name)
             if not save_dir.exists() and self.rank == 0:
                 save_dir.mkdir(parents=True)
         
+        # wandb logging
+        self.wandb_logging = self.configs.train.wandb_logging
+        if self.wandb_logging:
+            if self.rank == 0:
+                self.wandb_run = wandb.init(entity="infopz-team",
+                                        project="BigBrain",
+                                        name=run_name,
+                                        id=run_name,
+                                        resume="allow",
+                                        config=OmegaConf.to_container(self.configs, resolve=True))
+        
         # copy config into save_dir
-        cfg_path = os.path.join("/homes/gcasari/bigbrain/InvSR/", self.configs.cfg_path)
-        save_path = os.path.join(save_dir, "config.yaml")
-        if not os.path.exists(save_path):
-            # TODO: fixme, se il job non parte subito il file potrebbe essere non allineato
-            shutil.copy(cfg_path, save_path)
+        if self.rank == 0:
+            cfg_path = os.path.join("/homes/gcasari/bigbrain/InvSR/", self.configs.cfg_path)
+            save_path = os.path.join(save_dir, "config.yaml")
+            if not os.path.exists(save_path):
+                # TODO: fixme, se il job non parte subito il file potrebbe essere non allineato
+                shutil.copy(cfg_path, save_path)
 
         # setting log counter
         if self.rank == 0:
@@ -181,11 +194,23 @@ class TrainerBase:
 
     def resume_from_ckpt(self):
         if self.configs.resume:
-            assert self.configs.resume.endswith(".pth") and os.path.isfile(self.configs.resume)
+
+            # if resume is a string, it is the path to the checkpoint
+            if isinstance(self.configs.resume, str):
+                ckpt_path = self.configs.resume
+            # if resume is a boolean, get the last checkpoint from the save_dir
+            else:
+                ckpt_folder = Path(self.configs.save_dir) / Path(self.configs.run_name) /  "ckpts"
+                ckpt_files = [f for f in os.listdir(ckpt_folder) if f.endswith('.pth')]
+                last_ckpt = sorted(ckpt_files, key=lambda x: int(x[6:-4]))[0]
+
+                ckpt_path = ckpt_folder / last_ckpt
+
+            assert str(ckpt_path).endswith(".pth") and os.path.isfile(ckpt_path)
 
             if self.rank == 0:
-                self.logger.info(f"=> Loading checkpoint from {self.configs.resume}")
-            ckpt = torch.load(self.configs.resume, map_location=f"cuda:{self.rank}")
+                self.logger.info(f"=> Loading checkpoint from {ckpt_path}")
+            ckpt = torch.load(ckpt_path, map_location=f"cuda:{self.rank}")
             util_net.reload_model(self.model, ckpt['state_dict'])
             if self.configs.train.loss_coef.get('ldis', 0) > 0:
                 util_net.reload_model(self.discriminator, ckpt['state_dict_dis'])
@@ -203,7 +228,7 @@ class TrainerBase:
 
             # EMA model
             if self.rank == 0 and hasattr(self.configs.train, 'ema_rate'):
-                ema_ckpt_path = self.ema_ckpt_dir / ("ema_"+Path(self.configs.resume).name)
+                ema_ckpt_path = self.ema_ckpt_dir / ("ema_"+Path(ckpt_path).name)
                 self.logger.info(f"=> Loading EMA checkpoint from {str(ema_ckpt_path)}")
                 ema_ckpt = torch.load(ema_ckpt_path, map_location=f"cuda:{self.rank}")
                 util_net.reload_model(self.ema_model, ema_ckpt)
@@ -516,12 +541,17 @@ class TrainerBase:
 
         from datapipe.datasets import get_transforms
         import os
+        import json
+
+        filelist = json.load(open("/homes/gcasari/bigbrain/dataset_test/test_latent_8/misc/names.json"))["files"]
         
-        basepath = "/homes/gcasari/bigbrain/crops/random_pick/"
+        basepath = "/homes/gcasari/bigbrain/dataset_test/test_latent_8/hr"
 
-        f_list = os.listdir(basepath)
+        #f_list = os.listdir(basepath)
 
-        for f in f_list:
+        batch = []
+
+        for f in filelist:
             print("Processing", f)
 
             imgpath = os.path.join(basepath, f)
@@ -529,19 +559,30 @@ class TrainerBase:
             t = get_transforms("default", {'mean':0.0, 'std':1.0})
             im_base = t(im_base)
 
-            im_base = im_base.unsqueeze(0).cuda()
+            #im_base = im_base.unsqueeze(0).cuda()
 
-            im_latent = self.encode_first_stage(
-                        im_base, center_input_sample=True, deterministic=False,
-                    )
+            batch.append(im_base)
 
-            x0_recon = self.decode_first_stage(im_latent.detach())
+        batch_data = torch.stack(batch, dim=0)
+        batch_data.cuda().to(dtype=torch.float32)
+        
+        im_latent = self.encode_first_stage(
+                    batch_data, center_input_sample=True, deterministic=True,
+                )
+
+        # CONTINUE:   mi da errore di tipo, l'input e' float mentre i pesi sono Half, capire come gli arrivano nella pipeline normale
+
+        torch.save(im_latent, "/homes/gcasari/bigbrain/dataset_test/test_latent_8/misc/computed.pt")
+
+        print()
+
+        #x0_recon = self.decode_first_stage(im_latent.detach())
             
-            im_tensor = vutils.make_grid(x0_recon, nrow=1, normalize=True, scale_each=True) # c x H x W
+            #im_tensor = vutils.make_grid(x0_recon, nrow=1, normalize=True, scale_each=True) # c x H x W
             
-            out_path = imgpath.replace(".png", "_recon.png")
-            im_np = im_tensor.cpu().permute(1,2,0).numpy()
-            util_image.imwrite(im_np, out_path)
+            #out_path = imgpath.replace(".png", "_recon.png")
+            #im_np = im_tensor.cpu().permute(1,2,0).numpy()
+            #util_image.imwrite(im_np, out_path)
         
         print()
     
@@ -1081,8 +1122,8 @@ class TrainerBaseSR(TrainerBase):
             self.optimizer.step()
 
         # update discriminator
-        # Per le prime "self.configs.train.dis_init_iterations" alleno sempre il discriminatore
-        # e non lo uso pero' nel calcolo della loss del generatore
+        # Essendo dis_update_freq == 1, anche il discriminatore viene sempre allenato
+        # solo non verra' usato nella loss pe le prime dis_init_iterations
         if (self.configs.train.loss_coef.get('ldis', 0) > 0 and
             (self.current_iters < self.configs.train.dis_init_iterations
             or self.current_iters % self.configs.train.dis_update_freq == 0)

@@ -29,8 +29,9 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
-                "--save_dir", "../logs",
                 "--cfg_path", "configs/custom-test-sr.yaml",
+                "--run_name", "provaRun4",
+                "--resume"
             ]
         },
         {
@@ -67,19 +68,9 @@
             "cwd": "${workspaceFolder}/InvSR",
             "python": "/homes/gcasari/bigbrain/custom_python.sh",
             "args": [
-                "--save_dir", "../logs",
                 "--cfg_path", "configs/custom-test-sr.yaml",
+                "--run_name", "provaRun"
             ]
-        },
-        {
-            "name": "Attach to Remote Debugpy",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5678
-            },
-            "justMyCode": "false"
         }
     ]
 }

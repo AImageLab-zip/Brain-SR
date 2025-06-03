@@ -16,14 +16,14 @@ def get_parser(**parser_kwargs):
     parser.add_argument(
             "--save_dir",
             type=str,
-            default="./save_dir",
+            default="../work_data/logs/",
             help="Folder to save the checkpoints and training log",
             )
     parser.add_argument(
             "--resume",
             type=str,
             const=True,
-            default="",
+            default=None,
             nargs="?",
             help="resume from the save_dir or checkpoint",
             )
@@ -57,6 +57,11 @@ def get_parser(**parser_kwargs):
             default='False',
             help="Text Prompt",
             )
+    parser.add_argument(
+        "--run_name",
+        type=str,
+        default=None,
+    )
     
     parser.add_argument(
         "--remote-debug", action="store_true"
@@ -94,7 +99,7 @@ if __name__ == "__main__":
 
     # merge args to config
     for key in vars(args):
-        if key in ['cfg_path', 'save_dir', 'resume', ]:
+        if key in ['cfg_path', 'save_dir', 'resume', 'run_name']:
             configs[key] = getattr(args, key)
 
     trainer = get_obj_from_str(configs.trainer.target)(configs)

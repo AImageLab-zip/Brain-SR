@@ -14,7 +14,7 @@ cd /homes/gcasari/bigbrain/InvSR/
 
 base="
 --save_dir ../work_data/logs/
---cfg_path /homes/gcasari/bigbrain/InvSR/configs/bigbrain-train-adj-bs.yaml
+--cfg_path /homes/gcasari/bigbrain/InvSR/configs/bigbrain-train-dis1_5k-sh.yaml
 "
 
 python3 main.py ${base}

@@ -18,6 +18,8 @@ from utils import util_common
 from basicsr.data.transforms import augment
 from basicsr.data.realesrgan_dataset import RealESRGANDataset
 
+common_gt_latent = torch.load("/homes/gcasari/bigbrain/misc/gt_latent.pt", map_location=torch.device("cpu"))
+
 def get_transforms(transform_type, kwargs):
     '''
     Accepted optins in kwargs.
@@ -135,6 +137,10 @@ class BaseData(Dataset):
             im_extra = util_image.imread(im_path_extra, chn='rgb', dtype='float32')
             im_extra = self.extra_transform(im_extra)
             out['gt'] = im_extra
+
+            # Load also gt_latent
+            #out["gt_latent"] = common_gt_latent
+            
 
         if self.need_path:
             out['path'] = im_path_base
