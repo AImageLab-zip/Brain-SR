@@ -14,4 +14,4 @@
 
 cd /homes/gcasari/bigbrain/InvSR/
 
-CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --save_dir ../work_data/logs/ --cfg_path /homes/gcasari/bigbrain/InvSR/configs/bigbrain-train-3-noDIS.yaml
+CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name disc_5e5_15k_01 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/bigbtain-3-dis-15k-01.yaml

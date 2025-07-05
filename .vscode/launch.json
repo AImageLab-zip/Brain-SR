@@ -30,7 +30,29 @@
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
                 "--cfg_path", "configs/custom-test-sr.yaml",
-                "--run_name", "provaRun4",
+            ]
+        },
+        {
+            "name": "Debug Custom Code",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/main_custom.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--cfg_path", "configs/custom-test-sr.yaml",
+            ]
+        },
+        {
+            "name": "Debug Resume Training",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/main.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/bigbrain-train-3-noDIS.yaml",
+                "--run_name", "low_dis",
                 "--resume"
             ]
         },
@@ -63,13 +85,12 @@
             "name": "Debug03 Training",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/InvSR/main.py",
+            "program": "${workspaceFolder}/InvSR/main_custom.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/InvSR",
             "python": "/homes/gcasari/bigbrain/custom_python.sh",
             "args": [
-                "--cfg_path", "configs/custom-test-sr.yaml",
-                "--run_name", "provaRun"
+                "--cfg_path", "configs/custom-test-sr.yaml"
             ]
         }
     ]

@@ -18,7 +18,7 @@ from utils import util_common
 from basicsr.data.transforms import augment
 from basicsr.data.realesrgan_dataset import RealESRGANDataset
 
-common_gt_latent = torch.load("/homes/gcasari/bigbrain/misc/gt_latent.pt", map_location=torch.device("cpu"))
+common_gt_latent = torch.load("/homes/gcasari/bigbrain/misc/gt_latent.pt", map_location=torch.device("cpu")).squeeze(0)
 
 def get_transforms(transform_type, kwargs):
     '''

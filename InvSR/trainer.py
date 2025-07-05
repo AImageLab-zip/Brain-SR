@@ -50,6 +50,8 @@ _positive= "High-resolution histological brain tissue, accurate cellular structu
 _negative= 'Low quality, blurring, jpeg artifacts, deformed, over-smooth, cartoon, noisy,' +\
            'painting, drawing, sketch, oil painting'
 
+os.environ["WANDB_DIR"] = "/homes/gcasari/bigbrain/work_data/wandb_log"
+
 class TrainerBase:
     def __init__(self, configs):
         self.configs = configs
@@ -107,6 +109,8 @@ class TrainerBase:
                 assert isinstance(self.configs.run_name, str), "If you want to resume training, please provide the runName or the checkpoint file."
                 run_name = self.configs.run_name
                 save_dir = Path(self.configs.save_dir) / Path(run_name)
+                if not save_dir.exists():
+                    raise FileNotFoundError(f"Cannot find the save directory: {save_dir}. Please check the run_name or the resume path.")
             
         else:
 
@@ -202,7 +206,7 @@ class TrainerBase:
             else:
                 ckpt_folder = Path(self.configs.save_dir) / Path(self.configs.run_name) /  "ckpts"
                 ckpt_files = [f for f in os.listdir(ckpt_folder) if f.endswith('.pth')]
-                last_ckpt = sorted(ckpt_files, key=lambda x: int(x[6:-4]))[0]
+                last_ckpt = sorted(ckpt_files, key=lambda x: int(x[6:-4]), reverse=True)[0]
 
                 ckpt_path = ckpt_folder / last_ckpt
 
@@ -537,6 +541,7 @@ class TrainerBase:
     def validation(self):
         pass
 
+    @torch.no_grad()
     def my_test_method(self):
 
         from datapipe.datasets import get_transforms
@@ -564,14 +569,11 @@ class TrainerBase:
             batch.append(im_base)
 
         batch_data = torch.stack(batch, dim=0)
-        batch_data.cuda().to(dtype=torch.float32)
+        batch_data = batch_data.cuda().to(dtype=torch.float32)
         
         im_latent = self.encode_first_stage(
                     batch_data, center_input_sample=True, deterministic=True,
                 )
-
-        # CONTINUE:   mi da errore di tipo, l'input e' float mentre i pesi sono Half, capire come gli arrivano nella pipeline normale
-
         torch.save(im_latent, "/homes/gcasari/bigbrain/dataset_test/test_latent_8/misc/computed.pt")
 
         print()
@@ -996,6 +998,7 @@ class TrainerBaseSR(TrainerBase):
             batch = {key:value.cuda().to(dtype=torch.float32) for key, value in data.items()}
             batch['txt'] = [_positive, ] * data['lq'].shape[0]
             # TODO: vedere di modificare questo e calcolarli prima
+
             batch['gt_latent'] = self.encode_first_stage(
                     batch['gt'], center_input_sample=True, deterministic=False,
                 )
