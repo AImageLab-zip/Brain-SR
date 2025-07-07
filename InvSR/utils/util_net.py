@@ -96,3 +96,36 @@ def reload_model(model, ckpt):
 
         assert target_key in ckpt
         source_value.copy_(ckpt[target_key])
+
+def grad_norm_for_single_loss(loss, model):
+
+    loss = loss.mean()  # Ensure loss is a scalar
+
+    # Use torch.autograd.grad to compute the gradints without modifying the model parameters
+    grads = torch.autograd.grad(
+        outputs=loss,
+        inputs=[p for p in model.parameters() if p.requires_grad],
+        retain_graph=True,
+        create_graph=False,
+        allow_unused=True
+    )
+
+    # Compute the norm of the gradients
+    total_norm = 0.0
+    for g in grads:
+        if g is not None:
+            total_norm += g.data.norm(2).item() ** 2
+
+    return total_norm ** 0.5
+
+
+def compute_grad_norm(model):
+    # Compute the gradient norm of the model parameters, based ont the accumulated gradients
+
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+
+    return total_norm ** 0.5
