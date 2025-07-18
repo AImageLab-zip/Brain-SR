@@ -672,7 +672,7 @@ class TrainerBase:
             ema_ckpt_path = self.ema_ckpt_dir / 'ema_model_{:d}.pth'.format(self.current_iters)
             torch.save(self.ema_model.state_dict(), ema_ckpt_path)
 
-    def logging_image(self, im_tensor, tag, phase, add_global_step=False, nrow=8):
+    def logging_image(self, im_tensor, tag, phase, add_global_step=False, nrow=8, wandb_logging=True):
         """
         Args:
             im_tensor: b x c x h x w tensor
@@ -692,7 +692,7 @@ class TrainerBase:
                     im_tensor,
                     self.log_step_img[phase],
                     )
-        if self.wandb_logging:
+        if self.wandb_logging and wandb_logging:
             image = wandb.Image(im_tensor, caption=f"{phase}-{tag}-{self.log_step_img[phase]}")
             self.wandb_run.log({f"image-{phase}-{tag}": image}, step=self.current_iters)
         if add_global_step:
@@ -1116,9 +1116,10 @@ class TrainerBaseSR(TrainerBase):
                 tt_list.append(tt)
                 prompt_embeds_list.append(self.prompt_embeds.detach())
 
-        with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
-            # Compute the gradient norm of the generator
-            if self.rank == 0:
+        # Attention that gradlog_freq is not in the base config
+        if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
+            with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
+                # Compute the gradient norm of the generator
                 grad_norm_gen = util_net.compute_grad_norm(self.model)
 
         # Dopo aver processato ogni mini-batch fa lo step di optimize
@@ -1160,9 +1161,9 @@ class TrainerBaseSR(TrainerBase):
                 losses['real'] = logits[0].detach().mean(dim=list(range(1, ndim)))
                 losses['fake'] = logits[1].detach().mean(dim=list(range(1, ndim)))
 
-            with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
-                # Compute the gradient norm of the generator
-                if self.rank == 0:
+            if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
+                with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
+                    # Compute the gradient norm of the generator
                     grad_norm_disc = util_net.compute_grad_norm(self.discriminator)
 
             if self.configs.train.use_amp:
@@ -1292,7 +1293,7 @@ class TrainerBaseSR(TrainerBase):
             (self.configs.train.log_freq[1] // self.configs.train.dis_update_freq) == 0):
             if zt_noisy is not None:
                 xt_pred = self.decode_first_stage(zt_noisy.detach())
-                self.logging_image(xt_pred, tag='xt-noisy', phase=phase, add_global_step=False)
+                self.logging_image(xt_pred, tag='xt-noisy', phase=phase, add_global_step=False, wandb_logging=False)
             if z0_pred is not None:
                 x0_pred = self.decode_first_stage(z0_pred.detach())
                 self.logging_image(x0_pred, tag='x0-pred', phase=phase, add_global_step=False)
@@ -1302,7 +1303,7 @@ class TrainerBaseSR(TrainerBase):
             if 'txt' in micro_data:
                 self.logging_text(micro_data['txt'], phase=phase)
             self.logging_image(micro_data['lq'], tag='LQ', phase=phase, add_global_step=False)
-            self.logging_image(micro_data['gt'], tag='GT', phase=phase, add_global_step=True)
+            self.logging_image(micro_data['gt'], tag='GT', phase=phase, add_global_step=True, wandb_logging=False)
 
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
             (self.configs.train.save_freq // self.configs.train.dis_update_freq) == 1):
@@ -1363,7 +1364,7 @@ class TrainerBaseSR(TrainerBase):
             if (jj + 1) % self.configs.validate.log_freq == 0:
                 self.logger.info(f'Validation: {jj+1:02d}/{num_iters_epoch:02d}...')
 
-                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False)
+                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False, wandb_logging=False)
                 xt_progressive = rearrange(torch.cat(xt_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
                     xt_progressive,
@@ -1371,6 +1372,7 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
+                    wandb_logging=False
                 )
                 x0_progressive = rearrange(torch.cat(x0_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
@@ -1379,8 +1381,9 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
+                    wandb_logging=False
                 )
-                self.logging_image(data['lq'], tag='LQ', phase=phase, add_global_step=True)
+                self.logging_image(data['lq'], tag='LQ', phase=phase, add_global_step=True, wandb_logging=False)
 
         if 'gt' in data:
             mean_psnr /= len(self.datasets[phase])

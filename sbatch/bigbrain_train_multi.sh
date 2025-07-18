@@ -14,4 +14,4 @@
 
 cd /homes/gcasari/bigbrain/InvSR/
 
-CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name gn_005_5e5 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/gradnorm_005_5e5.yaml --resume
+CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name lpips_2e5 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/lpips_2e5.yaml --resume
