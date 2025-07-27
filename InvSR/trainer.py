@@ -1121,6 +1121,7 @@ class TrainerBaseSR(TrainerBase):
             with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
                 # Compute the gradient norm of the generator
                 grad_norm_gen = util_net.compute_grad_norm(self.model)
+                self.logging_metric({"generator": grad_norm_gen}, tag='GradNorm', phase='train', add_global_step=False)
 
         # Dopo aver processato ogni mini-batch fa lo step di optimize
         if self.configs.train.use_amp:
@@ -1165,6 +1166,7 @@ class TrainerBaseSR(TrainerBase):
                 with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
                     # Compute the gradient norm of the generator
                     grad_norm_disc = util_net.compute_grad_norm(self.discriminator)
+                    self.logging_metric({"discriminator": grad_norm_disc}, tag='GradNorm', phase='train', add_global_step=False)
 
             if self.configs.train.use_amp:
                 self.amp_scaler_dis.step(self.optimizer_dis)
@@ -1174,8 +1176,6 @@ class TrainerBaseSR(TrainerBase):
 
         # make logging
         if self.rank == 0:
-
-            self.logging_metric({"generator": grad_norm_gen, "discriminator": grad_norm_disc}, tag='GradNorm', phase='train', add_global_step=False)
 
             self.log_step_train(
                 losses, tt, micro_data, z0_pred, zt_noisy, z0_gt=micro_data['gt_latent'],
@@ -1480,7 +1480,7 @@ class TrainerBaseSR(TrainerBase):
                         losses['loss'] = losses['loss'] + losses[key]
             loss = losses['loss'].mean() / num_grad_accumulate
 
-            if self.rank == 0:
+            if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
                 # If im in the first micro-batch, compute the grad norms
 
                 grad_norm_ldif = util_net.grad_norm_for_single_loss(losses["ldif"], self.model)

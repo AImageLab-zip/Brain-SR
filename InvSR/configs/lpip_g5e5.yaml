@@ -215,15 +215,16 @@ train:
   # logging
   save_freq: 1000               # ogni quanto fa la validation
   log_freq: [250, 500]         # [training loss, training images, val images]
+  gradlog_freq: 50
   local_logging: True           # manually save images
   tf_logging: False             # tensorboard logging
   wandb_logging: True
   # loss 
   loss_type: L2
   loss_coef:
-    ldif: 0.5
+    ldif: 1
     ldis: 0.1
-    llpips: 3
+    llpips: 2
   timesteps: [100]
   num_inference_steps: 1
   # mixed precision

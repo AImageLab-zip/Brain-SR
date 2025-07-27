@@ -195,7 +195,7 @@ train:
   # learning rate
   lr: 5e-5                      # learning rate 
   lr_min: 5e-5                  # learning rate 
-  lr_schedule: cosin
+  lr_schedule: "cosin"
   warmup_iterations: 2000
   # discriminator
   lr_dis: 5e-5                  # learning rate for dicriminator
@@ -203,15 +203,15 @@ train:
   dis_init_iterations: 100    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 16               
-  microbatch: 8 
+  batch: 8               
+  microbatch: 4 
   num_workers: 1
   prefetch_factor: 2            
   use_text: True
   # optimization settings
-  weight_decay: 0               
-  ema_rate: 0.999
-  iterations: 200000            # total iterations
+  weight_decay: 5e-4               
+  ema_rate: 0.0
+  iterations: 100000            # total iterations
   # logging
   save_freq: 6               # ogni quanto fa la validation
   log_freq: [2, 4]         # [training loss, training images, val images]
@@ -236,6 +236,6 @@ train:
 
 validate:
   batch: 4
-  use_ema: True            
+  use_ema: False            
   log_freq: 64      # logging frequence
   val_y_channel: True

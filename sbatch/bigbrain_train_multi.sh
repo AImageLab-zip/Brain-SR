@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bigbrain_train_3gpu
+#SBATCH --job-name=bigbrain_lpip2_2e5
 #SBATCH --output=/homes/gcasari/io/output_%x.txt
 #SBATCH --error=/homes/gcasari/io/error_%x.txt
 #SBATCH --gres=gpu:3
@@ -14,4 +14,4 @@
 
 cd /homes/gcasari/bigbrain/InvSR/
 
-CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name lpips_2e5 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/lpips_2e5.yaml --resume
+CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name lpip2_2e5 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/lpip_2e5.yaml --resume
