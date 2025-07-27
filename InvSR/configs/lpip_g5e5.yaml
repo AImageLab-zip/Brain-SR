@@ -170,23 +170,23 @@ data:
           mean: 0
           std: 1
       im_exts: png
-      length: 1000
+      length: 303971
       recursive: False
   val:
     type: base
     params:
-      dir_path: /homes/gcasari/bigbrain/work_data/crops_datasets/train/low
+      dir_path: /homes/gcasari/bigbrain/work_data/crops_datasets/val/low
       transform_type: default
       transform_kwargs:
           mean: 0
           std: 1
-      extra_dir_path: /homes/gcasari/bigbrain/work_data/crops_datasets/train/high
+      extra_dir_path: /homes/gcasari/bigbrain/work_data/crops_datasets/val/high
       extra_transform_type: default
       extra_transform_kwargs:
           mean: 0
           std: 1
       im_exts: png
-      length: 50
+      length: 3000
       recursive: False
 
 train:
@@ -194,18 +194,18 @@ train:
   start_mode: True
   # learning rate
   lr: 5e-5                      # learning rate 
-  lr_min: 5e-5                  # learning rate 
+  lr_min: 5e-6                  # learning rate 
   lr_schedule: "cosin"
-  warmup_iterations: 2000
+  warmup_iterations: 4000
   # discriminator
-  lr_dis: 5e-5                  # learning rate for dicriminator
-  weight_decay_dis: 1e-3        # weight decay for dicriminator
-  dis_init_iterations: 100    # iterations used for updating the discriminator
+  lr_dis: 2e-5                  # learning rate for dicriminator
+  weight_decay_dis: 5e-4        # weight decay for dicriminator
+  dis_init_iterations: 15000    # iterations used for updating the discriminator
   dis_update_freq: 1            
   # dataloader
-  batch: 8               
-  microbatch: 4 
-  num_workers: 1
+  batch: 24               
+  microbatch: 8 
+  num_workers: 8
   prefetch_factor: 2            
   use_text: True
   # optimization settings
@@ -213,17 +213,18 @@ train:
   ema_rate: 0.0
   iterations: 100000            # total iterations
   # logging
-  save_freq: 6               # ogni quanto fa la validation
-  log_freq: [2, 4]         # [training loss, training images, val images]
+  save_freq: 1000               # ogni quanto fa la validation
+  log_freq: [250, 500]         # [training loss, training images, val images]
+  gradlog_freq: 50
   local_logging: True           # manually save images
   tf_logging: False             # tensorboard logging
   wandb_logging: True
   # loss 
   loss_type: L2
   loss_coef:
-    ldif: 1.0
+    ldif: 1
     ldis: 0.1
-    llpips: 1.5
+    llpips: 2
   timesteps: [100]
   num_inference_steps: 1
   # mixed precision
@@ -237,5 +238,5 @@ train:
 validate:
   batch: 4
   use_ema: False            
-  log_freq: 64      # logging frequence
+  log_freq: 500      # logging frequence
   val_y_channel: True

@@ -672,7 +672,7 @@ class TrainerBase:
             ema_ckpt_path = self.ema_ckpt_dir / 'ema_model_{:d}.pth'.format(self.current_iters)
             torch.save(self.ema_model.state_dict(), ema_ckpt_path)
 
-    def logging_image(self, im_tensor, tag, phase, add_global_step=False, nrow=8):
+    def logging_image(self, im_tensor, tag, phase, add_global_step=False, nrow=8, wandb_logging=True):
         """
         Args:
             im_tensor: b x c x h x w tensor
@@ -692,7 +692,7 @@ class TrainerBase:
                     im_tensor,
                     self.log_step_img[phase],
                     )
-        if self.wandb_logging:
+        if self.wandb_logging and wandb_logging:
             image = wandb.Image(im_tensor, caption=f"{phase}-{tag}-{self.log_step_img[phase]}")
             self.wandb_run.log({f"image-{phase}-{tag}": image}, step=self.current_iters)
         if add_global_step:
@@ -1098,6 +1098,7 @@ class TrainerBaseSR(TrainerBase):
         # update generator
         if self.configs.train.loss_coef.get('ldis', 0) > 0:
             self.freeze_model(self.discriminator) # freeze discriminator
+            self.discriminator.eval() # freeze discriminator
             z0_pred_list = []
             tt_list = []
             prompt_embeds_list = []
@@ -1114,6 +1115,13 @@ class TrainerBaseSR(TrainerBase):
                 z0_pred_list.append(z0_pred.detach())
                 tt_list.append(tt)
                 prompt_embeds_list.append(self.prompt_embeds.detach())
+
+        # Attention that gradlog_freq is not in the base config
+        if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
+            with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
+                # Compute the gradient norm of the generator
+                grad_norm_gen = util_net.compute_grad_norm(self.model)
+                self.logging_metric({"generator": grad_norm_gen}, tag='GradNorm', phase='train', add_global_step=False)
 
         # Dopo aver processato ogni mini-batch fa lo step di optimize
         if self.configs.train.use_amp:
@@ -1134,6 +1142,7 @@ class TrainerBaseSR(TrainerBase):
             # grad zero
             self.unfreeze_model(self.discriminator) # update discriminator
             self.discriminator.zero_grad()
+            self.discriminator.train() # unfreeze discriminator
             for ii, jj in enumerate(range(0, current_bs, micro_bs)):
                 micro_data = {key:value[jj:jj+micro_bs] for key, value in data.items()}
                 last_batch = (jj+micro_bs >= current_bs)
@@ -1153,6 +1162,12 @@ class TrainerBaseSR(TrainerBase):
                 losses['real'] = logits[0].detach().mean(dim=list(range(1, ndim)))
                 losses['fake'] = logits[1].detach().mean(dim=list(range(1, ndim)))
 
+            if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
+                with torch.autocast(device_type="cuda", enabled=self.configs.train.use_amp):
+                    # Compute the gradient norm of the generator
+                    grad_norm_disc = util_net.compute_grad_norm(self.discriminator)
+                    self.logging_metric({"discriminator": grad_norm_disc}, tag='GradNorm', phase='train', add_global_step=False)
+
             if self.configs.train.use_amp:
                 self.amp_scaler_dis.step(self.optimizer_dis)
                 self.amp_scaler_dis.update()
@@ -1161,6 +1176,7 @@ class TrainerBaseSR(TrainerBase):
 
         # make logging
         if self.rank == 0:
+
             self.log_step_train(
                 losses, tt, micro_data, z0_pred, zt_noisy, z0_gt=micro_data['gt_latent'],
             )
@@ -1262,13 +1278,22 @@ class TrainerBaseSR(TrainerBase):
                 else:
                     log_str += f", "
             log_str += 'lr:{:.1e}'.format(self.optimizer.param_groups[0]['lr'])
+
+            # Log on str logger
             self.logger.info(log_str)
+            # log logits on wandb
+            self.logging_metric({"logit_real": self.logit_mean['real'].item(),
+                                 "logit_fake": self.logit_mean['fake'].item()},
+                                tag='Logits', phase=phase, add_global_step=False)
+            # log on wandb
             self.logging_metric(self.loss_mean, tag='Loss', phase=phase, add_global_step=True)
+
+
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
             (self.configs.train.log_freq[1] // self.configs.train.dis_update_freq) == 0):
             if zt_noisy is not None:
                 xt_pred = self.decode_first_stage(zt_noisy.detach())
-                self.logging_image(xt_pred, tag='xt-noisy', phase=phase, add_global_step=False)
+                self.logging_image(xt_pred, tag='xt-noisy', phase=phase, add_global_step=False, wandb_logging=False)
             if z0_pred is not None:
                 x0_pred = self.decode_first_stage(z0_pred.detach())
                 self.logging_image(x0_pred, tag='x0-pred', phase=phase, add_global_step=False)
@@ -1278,7 +1303,7 @@ class TrainerBaseSR(TrainerBase):
             if 'txt' in micro_data:
                 self.logging_text(micro_data['txt'], phase=phase)
             self.logging_image(micro_data['lq'], tag='LQ', phase=phase, add_global_step=False)
-            self.logging_image(micro_data['gt'], tag='GT', phase=phase, add_global_step=True)
+            self.logging_image(micro_data['gt'], tag='GT', phase=phase, add_global_step=True, wandb_logging=False)
 
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
             (self.configs.train.save_freq // self.configs.train.dis_update_freq) == 1):
@@ -1339,7 +1364,7 @@ class TrainerBaseSR(TrainerBase):
             if (jj + 1) % self.configs.validate.log_freq == 0:
                 self.logger.info(f'Validation: {jj+1:02d}/{num_iters_epoch:02d}...')
 
-                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False)
+                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False, wandb_logging=False)
                 xt_progressive = rearrange(torch.cat(xt_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
                     xt_progressive,
@@ -1347,6 +1372,7 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
+                    wandb_logging=False
                 )
                 x0_progressive = rearrange(torch.cat(x0_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
@@ -1355,8 +1381,9 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
+                    wandb_logging=False
                 )
-                self.logging_image(data['lq'], tag='LQ', phase=phase, add_global_step=True)
+                self.logging_image(data['lq'], tag='LQ', phase=phase, add_global_step=True, wandb_logging=False)
 
         if 'gt' in data:
             mean_psnr /= len(self.datasets[phase])
@@ -1427,11 +1454,16 @@ class TrainerBaseSR(TrainerBase):
             # discriminator loss
             if loss_coef.get('ldis', 0) > 0:
                 if self.current_iters > self.configs.train.dis_init_iterations:
+                    # Calcola i logits dal discriminatore (sono 4 feature maps)
                     logits_fake = self.discriminator(
                         torch.clamp(z0_pred, min=_Latent_bound['min'], max=_Latent_bound['max']),
                         timestep=tt,
                         encoder_hidden_states=self.prompt_embeds,
                     )
+                    # in get_loss_from_discrimnator fa -mean() dei logits per ogni livello e ogni immagine
+                    # questo perche' se l'immagine generata sara' "brutta", gli verranno assegnati valori negativi (assegnati alle immagini visivamente generate)
+                    # e quindi la loss sara' positiva, cosi' da essere minimizzata
+                    # Se invece l'immagine sara' "bella", i logits saranno positivi e quindi la loss sara' negativa, quindi non verra' minimizzata
                     losses['ldis'] = self.get_loss_from_discrimnator(logits_fake) * loss_coef['ldis']
                 else:
                     losses['ldis'] = torch.zeros((z0_gt.shape[0], ), dtype=torch.float32).cuda()
@@ -1447,6 +1479,24 @@ class TrainerBaseSR(TrainerBase):
                     else:
                         losses['loss'] = losses['loss'] + losses[key]
             loss = losses['loss'].mean() / num_grad_accumulate
+
+            if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
+                # If im in the first micro-batch, compute the grad norms
+
+                grad_norm_ldif = util_net.grad_norm_for_single_loss(losses["ldif"], self.model)
+                if self.current_iters > self.configs.train.dis_init_iterations:
+                    grad_norm_ldis = util_net.grad_norm_for_single_loss(losses["ldis"], self.model)
+                else:
+                    grad_norm_ldis = 0
+                grad_norm_llpips = util_net.grad_norm_for_single_loss(losses["llpips"], self.model)
+
+                grad_norms = {
+                    'grad_norm_ldif': grad_norm_ldif,
+                    'grad_norm_ldis': grad_norm_ldis,
+                    'grad_norm_llpips': grad_norm_llpips,
+                }
+
+                self.logging_metric(grad_norms, tag='GradNorm', phase='train', add_global_step=False)
 
         if self.amp_scaler is None:
             loss.backward()
@@ -1776,7 +1826,7 @@ def hinge_d_loss(
         logits_fake: Union[torch.Tensor, List[torch.Tensor,]],
     ):
 
-    # Per ogni feature-map ritornata dal discriminatore calcola la hinge_loss
+    # Per ogni feature-map ritornata dal discriminatore calcola la hinge_loss (quando ogni logit e' al di sopra/sotto della soglia)
     # poi fa la media per tutti i livelli (ritorna un valore per ogni elemento del mini-batch)
 
     def _hinge_d_loss(logits_real, logits_fake):
