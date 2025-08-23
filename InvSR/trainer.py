@@ -29,6 +29,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import util_net
 from utils import util_common
 from utils import util_image
+from utils import util_fft
 from utils.util_ops import append_dims
 
 import pyiqa
@@ -455,6 +456,14 @@ class TrainerBase:
 
             self.llpips_loss = llpips_loss
 
+        # FFT Patch loss
+        if self.configs.train.loss_coef.get('lfft', 0) > 0:
+            
+            fft_conf = self.configs.train.get('loss_fft_conf')
+            fft_loss = util_fft.generate_fft_loss_func(fft_conf)
+
+            self.lfft_loss = fft_loss
+
         # model information
         self.print_model_info()
 
@@ -502,7 +511,7 @@ class TrainerBase:
                         batch_size=self.configs.train.batch // self.num_gpus,
                         shuffle=False if self.num_gpus > 1 else True,
                         drop_last=True,
-                        num_workers=min(self.configs.train.num_workers, 4),
+                        num_workers=max(self.configs.train.num_workers, 4),
                         pin_memory=True,
                         prefetch_factor=self.configs.train.get('prefetch_factor', 2),
                         worker_init_fn=my_worker_init_fn,
@@ -1363,8 +1372,9 @@ class TrainerBaseSR(TrainerBase):
 
             if (jj + 1) % self.configs.validate.log_freq == 0:
                 self.logger.info(f'Validation: {jj+1:02d}/{num_iters_epoch:02d}...')
-
-                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False, wandb_logging=False)
+                # Log the GT image, the xt that is the LR upscaled + predicted_noise and x0 that is the final output after diffusion step
+                self.logging_image(data['gt'], tag='GT', phase=phase, add_global_step=False, wandb_logging=True)
+                #self.logging_image(data['gt_latent'], tag='GT_latent', phase=phase, add_global_step=False, wandb_logging=False)
                 xt_progressive = rearrange(torch.cat(xt_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
                     xt_progressive,
@@ -1372,7 +1382,7 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
-                    wandb_logging=False
+                    wandb_logging=True
                 )
                 x0_progressive = rearrange(torch.cat(x0_progressive, dim=1), 'b (k c) h w -> (b k) c h w', c=3)
                 self.logging_image(
@@ -1381,7 +1391,7 @@ class TrainerBaseSR(TrainerBase):
                     phase=phase,
                     add_global_step=False,
                     nrow=num_inference_steps,
-                    wandb_logging=False
+                    wandb_logging=True
                 )
                 self.logging_image(data['lq'], tag='LQ', phase=phase, add_global_step=True, wandb_logging=False)
 
@@ -1471,8 +1481,13 @@ class TrainerBaseSR(TrainerBase):
             if loss_coef.get('llpips', 0) > 0:
                 # Calcolo la loss LPIP con il modello finetunato. Resituisce un valore per ogni img nel minibatch
                 losses['llpips'] = self.llpips_loss(z0_pred, z0_gt).view(-1) * loss_coef['llpips']
+            # fft-patch loss
+            if loss_coef.get('lfft', 0) > 0:
+                # Calcola la FFT losso tra l'immagine predetta e la gt (a piu' risoluzioni come specificato nel config)
+                # vedi util_fft per il codice
+                losses['lfft'] = self.lfft_loss(z0_pred, z0_gt) * loss_coef['lfft']
 
-            for key in ['ldif', 'kl', 'rkl', 'pkl', 'ldis', 'llpips']:
+            for key in ['ldif', 'kl', 'rkl', 'pkl', 'ldis', 'llpips', 'lfft']:
                 if loss_coef.get(key, 0) > 0:
                     if not 'loss' in losses:
                         losses['loss'] = losses[key]
@@ -1483,18 +1498,14 @@ class TrainerBaseSR(TrainerBase):
             if self.current_iters % self.configs.train.gradlog_freq == 0 and self.rank == 0:
                 # If im in the first micro-batch, compute the grad norms
 
-                grad_norm_ldif = util_net.grad_norm_for_single_loss(losses["ldif"], self.model)
-                if self.current_iters > self.configs.train.dis_init_iterations:
-                    grad_norm_ldis = util_net.grad_norm_for_single_loss(losses["ldis"], self.model)
-                else:
-                    grad_norm_ldis = 0
-                grad_norm_llpips = util_net.grad_norm_for_single_loss(losses["llpips"], self.model)
+                grad_norms = {}
 
-                grad_norms = {
-                    'grad_norm_ldif': grad_norm_ldif,
-                    'grad_norm_ldis': grad_norm_ldis,
-                    'grad_norm_llpips': grad_norm_llpips,
-                }
+                for key in ['ldif', 'ldis', 'llpips', 'lfft']:
+                    if loss_coef.get(key, 0) > 0:
+                        if key == "ldis" and (self.current_iters <= self.configs.train.dis_init_iterations):
+                            continue
+                        loss_grad_norm = util_net.grad_norm_for_single_loss(losses[key], self.model)    
+                        grad_norms[f'grad_norm_{key}'] = loss_grad_norm
 
                 self.logging_metric(grad_norms, tag='GradNorm', phase='train', add_global_step=False)
 
@@ -1816,6 +1827,8 @@ class TrainerSDTurboSR(TrainerBaseSR):
             x0_pred = self.decode_first_stage(z0_pred)
             x0_progressive.append(x0_pred)
 
+        # image_progessive (o anche xt_progressive) e' l'immagine ricostruita che viene data in input (al tempo t)
+        # x0_progressive e' l'immagine finale ricostruita (al tempo 0)
         return images_progressive, x0_progressive
 
 def my_worker_init_fn(worker_id):

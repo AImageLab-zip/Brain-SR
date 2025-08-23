@@ -19,7 +19,7 @@ sliced_vae: False
 cfg_scale: 1.0
 
 # sampling settings 
-start_timesteps: 200
+start_timesteps: 100
 
 # color fixing
 color_fix: ~
