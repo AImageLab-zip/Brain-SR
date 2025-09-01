@@ -1209,14 +1209,16 @@ class TrainerBaseSR(TrainerBase):
         else:
             max_inference_steps = self.configs.train.max_inference_steps
             record_steps = [1, max_inference_steps//2, max_inference_steps]
+
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
-            (self.configs.train.log_freq[0] // self.configs.train.dis_update_freq) == 1):
+            (self.configs.train.log_freq[0] // self.configs.train.dis_update_freq) == 1) or self.current_iters == 1:
             self.loss_mean = {key:torch.zeros(size=(len(record_steps),), dtype=torch.float64)
                               for key in losses.keys() if key not in ['real', 'fake']}
             if self.configs.train.loss_coef.get('ldis', 0) > 0:
                 self.logit_mean = {key:torch.zeros(size=(len(record_steps),), dtype=torch.float64)
                                   for key in ['real', 'fake']}
             self.loss_count = torch.zeros(size=(len(record_steps),), dtype=torch.float64)
+
         for jj in range(len(record_steps)):
             for key, value in losses.items():
                 index = record_steps[jj] - 1
@@ -1315,7 +1317,7 @@ class TrainerBaseSR(TrainerBase):
             self.logging_image(micro_data['gt'], tag='GT', phase=phase, add_global_step=True, wandb_logging=False)
 
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
-            (self.configs.train.save_freq // self.configs.train.dis_update_freq) == 1):
+            (self.configs.train.save_freq // self.configs.train.dis_update_freq) == 1) or self.current_iters == 1:
             self.tic = time.time()
         if ((self.current_iters //  self.configs.train.dis_update_freq) %
             (self.configs.train.save_freq // self.configs.train.dis_update_freq) == 0):

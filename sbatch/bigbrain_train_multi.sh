@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bigbrain_fft_nol2_1
+#SBATCH --job-name=bigbrain_fft_nol2_adj_updis
 #SBATCH --output=/homes/gcasari/io/output_%x.txt
 #SBATCH --error=/homes/gcasari/io/error_%x.txt
 #SBATCH --gres=gpu:3
@@ -14,4 +14,4 @@
 
 cd /homes/gcasari/bigbrain/InvSR/
 
-CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name fft_nol2_adj --cfg_path /homes/gcasari/bigbrain/InvSR/configs/fft_nol2_1.yaml --resume
+CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name fft_nol2_adj_updis3 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/fft_nol2_adj_updis.yaml

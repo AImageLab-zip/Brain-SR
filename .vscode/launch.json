@@ -16,9 +16,24 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
-                "-i", "../crops/2956/low_2956_2.png",
-                "-o", "outfolder",
-                "--num_steps", "1"
+                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth",
+                "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/sample-sd-turbo.yaml",
+                "-i", "/homes/gcasari/bigbrain/crops/crop_test/high",
+                "-o", "/homes/gcasari/bigbrain/out_report/nol2_adj",
+            ]
+        },
+        {
+            "name": "Debug EncodeDecode",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/encode_decode.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth",
+                "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/sample-sd-turbo.yaml",
+                "-i", "/homes/gcasari/bigbrain/crops/crop_test/high",
+                "-o", "/homes/gcasari/bigbrain/out_report/nol2_recons",
             ]
         },
         {
@@ -66,6 +81,20 @@
             "args": [
                 "--save_dir", "../logs",
                 "--cfg_path", "configs/bigbrain-train-adj-bs.yaml",
+            ]
+        },
+        {
+            "name": "Debug EncodeDecode",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/encode_decode.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "args": [
+                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth",
+                "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/sample-sd-turbo.yaml",
+                "-i", "/homes/gcasari/bigbrain/crops/crop_test/high",
+                "-o", "/homes/gcasari/bigbrain/out_report/nol2_recons",
             ]
         },
         {

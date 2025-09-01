@@ -108,26 +108,14 @@ def get_configs(args):
     return configs
 
 
-def activate_remote_debug():
-
-    import debugpy
-    debugpy.listen(("0.0.0.0", 5678))  # Accept connections on all interfaces
-    print("Waiting for debugger attach...")
-    debugpy.wait_for_client()
-
-
 def main():
     args = get_parser()
 
-    if args.remote_debug:
-        print("Activating Remote Debugging!")
-        activate_remote_debug()
-
     configs = get_configs(args)
 
-    sampler = InvSamplerSR(configs)
+    sampler = InvSamplerSR(configs, only_encode=True)
 
-    sampler.inference(args.in_path, out_path=args.out_path, bs=args.bs)
+    sampler.encode_decode(args.in_path, out_path=args.out_path, bs=args.bs)
 
 if __name__ == '__main__':
     main()

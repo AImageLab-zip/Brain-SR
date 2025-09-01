@@ -14,6 +14,8 @@ from utils import util_net
 from utils import util_image
 from utils import util_common
 from utils import util_color_fix
+import torchvision.utils as vutils
+from datapipe.datasets import get_transforms
 
 import torch
 import torch.nn.functional as F
@@ -32,7 +34,7 @@ _negative= 'Low quality, blurring, jpeg artifacts, deformed, over-smooth, cartoo
            'painting, drawing, sketch, oil painting'
 
 class BaseSampler:
-    def __init__(self, configs):
+    def __init__(self, configs, only_encode=False):
         '''
         Input:
             configs: config, see the yaml file in folder ./configs/
@@ -43,7 +45,7 @@ class BaseSampler:
 
         self.setup_seed()
 
-        self.build_model()
+        self.build_model(only_encode=only_encode)
 
     def setup_seed(self, seed=None):
         seed = self.configs.seed if seed is None else seed
@@ -55,7 +57,7 @@ class BaseSampler:
     def write_log(self, log_str):
         print(log_str, flush=True)
 
-    def build_model(self):
+    def build_model(self, only_encode: bool):
         # Build Stable diffusion
         params = dict(self.configs.sd_pipe.params)
         torch_dtype = params.pop('torch_dtype')
@@ -101,24 +103,25 @@ class BaseSampler:
             sd_pipe.vae._set_gradient_checkpointing(sd_pipe.vae.encoder, True)
             sd_pipe.vae._set_gradient_checkpointing(sd_pipe.vae.decoder, True)
 
-        model_configs = self.configs.model_start
-        params = model_configs.get('params', dict)
-        # Carica il NoisePrediction con i relativi parametri
-        model_start = util_common.get_obj_from_str(model_configs.target)(**params)
-        model_start.cuda()
-        # prende i pesi di noise-predictor-sd-turbo-v5
-        ckpt_path = model_configs.get('ckpt_path')
-        assert ckpt_path is not None
-        self.write_log(f"Loading started model from {ckpt_path}...")
-        state = torch.load(ckpt_path, map_location=f"cuda")
-        if 'state_dict' in state:
-            state = state['state_dict']
-        # inserisce i pesi dentro al NoisePredictor
-        util_net.reload_model(model_start, state)
-        self.write_log(f"Loading Done")
-        model_start.eval()
-        # Inserisce il NoisePredictor dentro la pipeline generale
-        setattr(sd_pipe, 'start_noise_predictor', model_start)
+        if not only_encode:
+            model_configs = self.configs.model_start
+            params = model_configs.get('params', dict)
+            # Carica il NoisePrediction con i relativi parametri
+            model_start = util_common.get_obj_from_str(model_configs.target)(**params)
+            model_start.cuda()
+            # prende i pesi di noise-predictor-sd-turbo-v5
+            ckpt_path = model_configs.get('ckpt_path')
+            assert ckpt_path is not None
+            self.write_log(f"Loading started model from {ckpt_path}...")
+            state = torch.load(ckpt_path, map_location=f"cuda")
+            if 'state_dict' in state:
+                state = state['state_dict']
+            # inserisce i pesi dentro al NoisePredictor
+            util_net.reload_model(model_start, state)
+            self.write_log(f"Loading Done")
+            model_start.eval()
+            # Inserisce il NoisePredictor dentro la pipeline generale
+            setattr(sd_pipe, 'start_noise_predictor', model_start)
 
         self.sd_pipe = sd_pipe
 
@@ -298,6 +301,113 @@ class InvSamplerSR(BaseSampler):
             util_image.imwrite(image, save_path, dtype_in='float32')
 
         self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
+
+
+    def encode_decode(self, in_path, out_path, bs=1):
+        '''
+        Inference demo.
+        Input:
+            in_path: str, folder or image path for LQ image
+            out_path: str, folder save the results
+            bs: int, default bs=1, bs % num_gpus == 0
+        '''
+
+        in_path = Path(in_path) if not isinstance(in_path, Path) else in_path
+        out_path = Path(out_path) if not isinstance(out_path, Path) else out_path
+
+        if not out_path.exists():
+            out_path.mkdir(parents=True)
+
+        if in_path.is_dir():
+
+            files = os.listdir(in_path)
+            files = [f for f in files if f.endswith('.png')]
+
+            for f in files:
+
+                imgpath = os.path.join(in_path, f)
+                im_base = util_image.imread(imgpath, chn='rgb', dtype='float32')
+                t = get_transforms("default", {'mean':0.0, 'std':1.0})
+                im_base = t(im_base)
+
+                # aggiungo la dimensione batch
+                im_base = im_base.unsqueeze(0)  # 1 x c x h x w
+                im_base = im_base.cuda().to(dtype=torch.float32)
+
+                im_latent = self.encode_first_stage(im_base.detach())
+                x0_recon = self.decode_first_stage(im_latent).detach()
+                #x0_recon = im_base
+
+                # Save as output        
+                x0_recon_norm = (x0_recon - x0_recon.min()) / (x0_recon.max() - x0_recon.min() + 1e-8)
+                im_np = x0_recon_norm.squeeze(0).cpu().permute(1,2,0).numpy()
+
+                im_name = Path(f).stem
+                save_path = str(Path(out_path) / f"{im_name}.png")
+                util_image.imwrite(im_np, save_path, dtype_in='float32')
+
+                #log
+                self.write_log(f"Processed {imgpath} -> {save_path}")
+
+        #else:
+        #    # Carica l'immagine e la trasforma in un tensore
+        #    im_cond = util_image.imread(in_path, chn='rgb', dtype='float32')  # h x w x c
+        #    im_cond = util_image.img2tensor(im_cond).cuda()                   # 1 x c x h x w
+
+        #    # Qua dentro fa tutto
+        #    image = self.sample_func(im_cond).squeeze(0)
+
+        #    # Salva
+        #    save_path = str(out_path / f"{in_path.stem}.png")
+        #    util_image.imwrite(image, save_path, dtype_in='float32')
+
+        self.write_log(f"Processing done, enjoy the results in {str(out_path)}")
+
+    @torch.amp.autocast('cuda')
+    def encode_first_stage(self, x, deterministic=False, center_input_sample=True):
+        if center_input_sample:
+            x = x * 2.0 - 1.0
+        latents_mean = latents_std = None
+        if hasattr(self.sd_pipe.vae.config, "latents_mean") and self.sd_pipe.vae.config.latents_mean is not None:
+            latents_mean = torch.tensor(self.sd_pipe.vae.config.latents_mean).view(1, -1, 1, 1)
+        if hasattr(self.sd_pipe.vae.config, "latents_std") and self.sd_pipe.vae.config.latents_std is not None:
+            latents_std = torch.tensor(self.sd_pipe.vae.config.latents_std).view(1, -1, 1, 1)
+
+        if deterministic:
+            partial_encode = lambda xx: self.sd_pipe.vae.encode(xx).latent_dist.mode()
+        else:
+            partial_encode = lambda xx: self.sd_pipe.vae.encode(xx).latent_dist.sample()
+
+        trunk_size = 8 #self.configs.sd_pipe.vae_split
+        if trunk_size < x.shape[0]:
+            init_latents = torch.cat([partial_encode(xx) for xx in x.split(trunk_size, 0)], dim=0)
+        else:
+            init_latents = partial_encode(x)
+
+        scaling_factor = self.sd_pipe.vae.config.scaling_factor
+        if latents_mean is not None and latents_std is not None:
+            latents_mean = latents_mean.to(device=x.device, dtype=x.dtype)
+            latents_std = latents_std.to(device=x.device, dtype=x.dtype)
+            init_latents = (init_latents - latents_mean) * scaling_factor / latents_std
+        else:
+            init_latents = init_latents * scaling_factor
+
+        return init_latents
+
+    @torch.amp.autocast('cuda')
+    def decode_first_stage(self, z, clamp=True):
+        z = z / self.sd_pipe.vae.config.scaling_factor
+
+        trunk_size = 1
+        if trunk_size < z.shape[0]:
+            out = torch.cat(
+                [self.sd_pipe.vae.decode(xx).sample for xx in z.split(trunk_size, 0)], dim=0,
+            )
+        else:
+            out = self.sd_pipe.vae.decode(z).sample
+        if clamp:
+            out = out.clamp(-1.0, 1.0)
+        return out
 
 def get_torch_dtype(torch_dtype: str):
     if torch_dtype == 'torch.float16':
