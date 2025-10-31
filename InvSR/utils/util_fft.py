@@ -52,8 +52,6 @@ class FFTPatchLoss(nn.Module):
             loss = torch.abs(input_mag - target_mag)
         elif self.loss_type == 'l2':
             loss = (input_mag - target_mag) ** 2
-        else:
-            raise ValueError(f"Unsupported loss_type: {self.loss_type}")
 
         # Mean over patch pixels: (B, C, N)
         loss = loss.view(B, C, N, -1).mean(dim=-1)

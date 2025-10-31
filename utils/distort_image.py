@@ -13,8 +13,13 @@ import torch.nn.functional as F
 from PIL import Image
 import csv
 
-from multith
+import math
+import torch
+import torch.nn.functional as F
 
+import concurrent.futures
+import multiprocessing as mp
+from dataclasses import dataclass
 
 # -------------------------------
 # I/O
@@ -157,7 +162,6 @@ def pinch_bulge_torch(img: torch.Tensor, center: tuple, radius: int, strength: f
     dtype = img.dtype
     cx, cy = center
 
-    # Make base grid in normalized coords [-1,1]
     yy, xx = torch.meshgrid(
         torch.arange(H, device=device, dtype=dtype),
         torch.arange(W, device=device, dtype=dtype),
@@ -195,6 +199,213 @@ def pinch_bulge_torch(img: torch.Tensor, center: tuple, radius: int, strength: f
     if not is_batched:
         warped = warped.squeeze(0)
     return warped
+
+
+def wave2d_distortion_torch(img: torch.Tensor,
+                            amp_x: float, freq_x: float,
+                            amp_y: float, freq_y: float,
+                            mode: str = "bilinear") -> torch.Tensor:
+    """
+    Distorsione 2D combinata:
+      x' = x + amp_x * sin(2π * y / freq_x)
+      y' = y + amp_y * sin(2π * x / freq_y)
+
+    img: (C,H,W) o (B,C,H,W) in [0,1]
+    amp_*, freq_* in pixel
+    """
+    is_batched = (img.dim() == 4)
+    if not is_batched:
+        img = img.unsqueeze(0)  # (1,C,H,W)
+
+    B, C, H, W = img.shape
+    device, dtype = img.device, img.dtype
+
+    # griglie in pixel
+    yy = torch.arange(H, device=device, dtype=dtype).view(1, 1, H, 1).expand(B, 1, H, W)
+    xx = torch.arange(W, device=device, dtype=dtype).view(1, 1, 1, W).expand(B, 1, H, W)
+
+    dx = amp_x * torch.sin(2 * math.pi * yy / max(freq_x, 1e-6))  # (B,1,H,W)
+    dy = amp_y * torch.sin(2 * math.pi * xx / max(freq_y, 1e-6))  # (B,1,H,W)
+
+    # coord sorgente (in pixel)
+    srcX = xx + dx
+    srcY = yy + dy
+
+    # clamp opzionale per sicurezza (riflessione già gestita da padding_mode)
+    # srcX = srcX.clamp(0, W-1)
+    # srcY = srcY.clamp(0, H-1)
+
+    # normalizza in [-1,1] per grid_sample (align_corners=True)
+    normX = (srcX / (W - 1)) * 2 - 1
+    normY = (srcY / (H - 1)) * 2 - 1
+    grid = torch.stack((normX, normY), dim=-1)  # (B,1,H,W,2) -> (B,H,W,2)
+    grid = grid.squeeze(1)
+
+    warped = F.grid_sample(img, grid, mode=mode, padding_mode="reflection", align_corners=True)
+    return warped.squeeze(0) if not is_batched else warped
+
+
+from torch.nn import functional as F
+
+@torch.no_grad()
+def perlin_like_distortion_torch(img: torch.Tensor,
+                                 scale: float = 20.0,
+                                 sigma: float = 10.0,
+                                 mode: str = "bilinear") -> torch.Tensor:
+    """
+    Distorsione tramite rumore Perlin-like:
+      - Si genera un campo random dx, dy.
+      - Lo si liscia con un blur gaussiano (sigma).
+      - Lo si scala in pixel (scale).
+    
+    Args:
+        img: torch.Tensor (C,H,W) o (B,C,H,W)
+        scale: ampiezza massima spostamento in pixel
+        sigma: smoothness del campo (blur gaussiano). Più alto = ondulazioni più larghe.
+        mode: interpolazione (bilinear o nearest)
+    """
+    is_batched = (img.dim() == 4)
+    if not is_batched:
+        img = img.unsqueeze(0)  # (1,C,H,W)
+
+    B, C, H, W = img.shape
+    device, dtype = img.device, img.dtype
+
+    # Rumore casuale
+    dx = torch.randn(B, 1, H, W, device=device, dtype=dtype)
+    dy = torch.randn(B, 1, H, W, device=device, dtype=dtype)
+
+    # Applica blur gaussiano separabile
+    def gaussian_blur(x, sigma):
+        if sigma <= 0:
+            return x
+        radius = int(3 * sigma)
+        ksize = 2 * radius + 1
+        coords = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
+        kernel = torch.exp(-0.5 * (coords / sigma) ** 2)
+        kernel /= kernel.sum()
+        kx = kernel.view(1, 1, 1, -1)
+        ky = kernel.view(1, 1, -1, 1)
+        x = F.conv2d(x, ky, padding=(radius, 0), groups=1)
+        x = F.conv2d(x, kx, padding=(0, radius), groups=1)
+        return x
+
+    dx = gaussian_blur(dx, sigma) * scale
+    dy = gaussian_blur(dy, sigma) * scale
+
+    # griglia base in pixel
+    yy, xx = torch.meshgrid(
+        torch.arange(H, device=device, dtype=dtype),
+        torch.arange(W, device=device, dtype=dtype),
+        indexing="ij"
+    )
+    xx = xx.unsqueeze(0).expand(B, -1, -1)
+    yy = yy.unsqueeze(0).expand(B, -1, -1)
+
+    srcX = xx + dx.squeeze(1)
+    srcY = yy + dy.squeeze(1)
+
+    # normalizza in [-1,1] per grid_sample
+    normX = (srcX / (W - 1)) * 2 - 1
+    normY = (srcY / (H - 1)) * 2 - 1
+    grid = torch.stack((normX, normY), dim=-1)
+
+    warped = F.grid_sample(img, grid, mode=mode,
+                           padding_mode="reflection", align_corners=True)
+    return warped.squeeze(0) if not is_batched else warped
+
+### Aggiunti per il wave ripple locale
+@torch.no_grad()
+def _gaussian_kernel1d(sigma: float, truncate: float = 3.0, device=None, dtype=None):
+    if sigma <= 0:
+        return torch.tensor([1.0], device=device, dtype=dtype)
+    radius = int(truncate * sigma + 0.5)
+    x = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
+    k = torch.exp(-0.5 * (x / sigma) ** 2)
+    k = k / k.sum()
+    return k
+
+@torch.no_grad()
+def _gaussian_blur2d(x: torch.Tensor, sigma: float):
+    if sigma <= 0:
+        return x
+    B, C, H, W = x.shape
+    k1d = _gaussian_kernel1d(sigma, device=x.device, dtype=x.dtype)
+    kx = k1d.view(1, 1, 1, -1)
+    ky = k1d.view(1, 1, -1, 1)
+    x = F.conv2d(x, ky.repeat(C,1,1,1), padding=(ky.shape[2]//2, 0), groups=C)
+    x = F.conv2d(x, kx.repeat(C,1,1,1), padding=(0, kx.shape[3]//2), groups=C)
+    return x
+
+@torch.no_grad()
+def local_wave_ripple_torch(
+    img: torch.Tensor,
+    amp_x: float, freq_x: float,
+    amp_y: float, freq_y: float,
+    patch_size: tuple[int,int] = (50, 50),
+    top_left: tuple[int,int] | None = None,
+    feather: float = 6.0,   # sigma per sfumare i bordi della patch (px)
+    mode: str = "bilinear",
+) -> torch.Tensor:
+    """
+    Applica un'onda 2D SOLO dentro una patch (con bordo sfumato).
+    img: (C,H,W) o (B,C,H,W) in [0,1]
+    amp_*: ampiezze in pixel
+    freq_*: periodi in pixel
+    patch_size: (ph, pw) in pixel (default 50x50)
+    top_left: (y0, x0) opzionale; se None viene campionata random
+    feather: sigma gaussiana per ottenere maschera morbida (0 = bordo netto)
+    """
+    is_batched = (img.dim() == 4)
+    if not is_batched:
+        img = img.unsqueeze(0)   # (1,C,H,W)
+    B, C, H, W = img.shape
+    device, dtype = img.device, img.dtype
+
+    ph, pw = patch_size
+    ph = min(ph, H)
+    pw = min(pw, W)
+
+    if top_left is None:
+        y0 = int(torch.randint(0, max(H - ph + 1, 1), (1,)).item())
+        x0 = int(torch.randint(0, max(W - pw + 1, 1), (1,)).item())
+    else:
+        y0, x0 = top_left
+        y0 = max(0, min(y0, H - ph))
+        x0 = max(0, min(x0, W - pw))
+
+    # griglie in pixel
+    yy_full = torch.arange(H, device=device, dtype=dtype).view(1,1,H,1).expand(B,1,H,W)
+    xx_full = torch.arange(W, device=device, dtype=dtype).view(1,1,1,W).expand(B,1,H,W)
+
+    # campo di spostamento "onda 2D" (sull'intera immagine)
+    dx = amp_x * torch.sin(2 * math.pi * yy_full / max(freq_x, 1e-6))
+    dy = amp_y * torch.sin(2 * math.pi * xx_full / max(freq_y, 1e-6))
+
+    # maschera locale (1 dentro patch, 0 fuori) + feather gaussian
+    mask = torch.zeros((B, 1, H, W), device=device, dtype=dtype)
+    mask[:, :, y0:y0+ph, x0:x0+pw] = 1.0
+    if feather > 0:
+        mask = _gaussian_blur2d(mask, sigma=feather)
+        # normalizza a [0,1] mantenendo il picco=1
+        maxv = mask.amax(dim=(-2,-1), keepdim=True).clamp_min(1e-8)
+        mask = (mask / maxv).clamp(0, 1)
+
+    dx *= mask
+    dy *= mask
+
+    # sorgenti in pixel
+    srcX = xx_full + dx
+    srcY = yy_full + dy
+
+    # normalizza in [-1,1] per grid_sample (align_corners=True)
+    normX = (srcX / (W - 1)) * 2 - 1
+    normY = (srcY / (H - 1)) * 2 - 1
+    grid = torch.stack((normX, normY), dim=-1).squeeze(1)  # (B,H,W,2)
+
+    warped = F.grid_sample(img, grid, mode=mode, padding_mode="reflection", align_corners=True)
+    return warped.squeeze(0) if not is_batched else warped
+
 
 
 # -------------------------------
@@ -248,6 +459,144 @@ def evaluate_pinches(
     return distorced_gt, rows
 
 
+def evaluate_waves(
+    gt: torch.Tensor,
+    iterations: int,
+    amp_x_range: tuple = (2.0, 8.0),
+    freq_x_range: tuple = (16.0, 48.0),
+    amp_y_range: tuple = (2.0, 8.0),
+    freq_y_range: tuple = (16.0, 48.0),
+) -> tuple:
+    """
+    Applica iterativamente la distorsione 2D combined wave, calcola metriche ad ogni step.
+    Ritorna (distorted_gt_finale, rows).
+    """
+    rows: List[Dict[str, Any]] = []
+
+    # baseline (nessuna distorsione)
+    base_metrics = spectral_metrics(gt, gt)
+    base_px = pixel_mse(gt, gt)
+    rows.append({
+        "variant": "orig",
+        "pixel_mse": base_px,
+        **base_metrics
+    })
+
+    dist_gt = gt.clone()
+
+    for i in range(iterations):
+        amp_x = float(torch.empty(1).uniform_(amp_x_range[0], amp_x_range[1]).item())
+        freq_x = float(torch.empty(1).uniform_(freq_x_range[0], freq_x_range[1]).item())
+        amp_y = float(torch.empty(1).uniform_(amp_y_range[0], amp_y_range[1]).item())
+        freq_y = float(torch.empty(1).uniform_(freq_y_range[0], freq_y_range[1]).item())
+
+        dist_gt = wave2d_distortion_torch(
+            dist_gt, amp_x=amp_x, freq_x=freq_x, amp_y=amp_y, freq_y=freq_y
+        )
+
+        m = spectral_metrics(dist_gt, gt)
+        px = pixel_mse(dist_gt, gt)
+        rows.append({
+            "variant": f"i{i+1}_ax{amp_x:.2f}_fx{freq_x:.1f}_ay{amp_y:.2f}_fy{freq_y:.1f}",
+            "pixel_mse": px,
+            **m
+        })
+
+    return dist_gt, rows
+
+
+def evaluate_perlin(
+    gt: torch.Tensor,
+    iterations: int,
+    scale_range: tuple = (10.0, 30.0),
+    sigma_range: tuple = (5.0, 20.0),
+) -> tuple:
+    """
+    Applica iterativamente distorsione Perlin-like.
+    """
+    rows: List[Dict[str, Any]] = []
+
+    # baseline
+    base_metrics = spectral_metrics(gt, gt)
+    base_px = pixel_mse(gt, gt)
+    rows.append({
+        "variant": "orig",
+        "pixel_mse": base_px,
+        **base_metrics
+    })
+
+    dist_gt = gt.clone()
+
+    for i in range(iterations):
+        scale = float(torch.empty(1).uniform_(*scale_range).item())
+        sigma = float(torch.empty(1).uniform_(*sigma_range).item())
+
+        dist_gt = perlin_like_distortion_torch(dist_gt, scale=scale, sigma=sigma)
+
+        m = spectral_metrics(dist_gt, gt)
+        px = pixel_mse(dist_gt, gt)
+        rows.append({
+            "variant": f"i{i+1}_scl{scale:.1f}_sig{sigma:.1f}",
+            "pixel_mse": px,
+            **m
+        })
+
+    return dist_gt, rows
+
+
+def evaluate_local_wave(
+    gt: torch.Tensor,
+    iterations: int,
+    amp_x_range: tuple = (2.0, 8.0),
+    freq_x_range: tuple = (16.0, 48.0),
+    amp_y_range: tuple = (2.0, 8.0),
+    freq_y_range: tuple = (16.0, 48.0),
+    patch_size: tuple[int,int] = (50, 50),
+    feather_sigma: float = 6.0,
+) -> tuple:
+    """
+    Applica iterativamente Local Wave Ripple su patch random 50x50 (di default).
+    Ritorna (distorted_gt_finale, rows).
+    """
+    rows: List[Dict[str, Any]] = []
+
+    # baseline
+    base_metrics = spectral_metrics(gt, gt)
+    base_px = pixel_mse(gt, gt)
+    rows.append({
+        "variant": "orig",
+        "pixel_mse": base_px,
+        **base_metrics
+    })
+
+    dist_gt = gt.clone()
+
+    for i in range(iterations):
+        amp_x = float(torch.empty(1).uniform_(*amp_x_range).item())
+        freq_x = float(torch.empty(1).uniform_(*freq_x_range).item())
+        amp_y = float(torch.empty(1).uniform_(*amp_y_range).item())
+        freq_y = float(torch.empty(1).uniform_(*freq_y_range).item())
+
+        dist_gt = local_wave_ripple_torch(
+            dist_gt,
+            amp_x=amp_x, freq_x=freq_x,
+            amp_y=amp_y, freq_y=freq_y,
+            patch_size=patch_size,
+            top_left=None,           # random ad ogni iterazione
+            feather=feather_sigma,
+        )
+
+        m = spectral_metrics(dist_gt, gt)
+        px = pixel_mse(dist_gt, gt)
+        rows.append({
+            "variant": f"i{i+1}_ax{amp_x:.2f}_fx{freq_x:.1f}_ay{amp_y:.2f}_fy{freq_y:.1f}_ps{patch_size[0]}x{patch_size[1]}",
+            "pixel_mse": px,
+            **m
+        })
+
+    return dist_gt, rows
+
+
 def convert_to_df(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
@@ -274,6 +623,91 @@ def write_csv(rows: List[Dict[str, Any]], out_path: str):
 
 
 # -------------------------------
+# Parallelize
+# -------------------------------
+
+
+def _process_one(img_path, outpath, pinches):
+    # minimal prints to avoid stdout lockups
+    gt = load_png_as_tensor(img_path)
+    
+    dist_gt, rows = evaluate_pinches(
+        gt=gt,
+        iterations=pinches,
+        radius_range=(40, 100),
+        strenght_range=(-0.4, 0.4),
+    )
+
+    #dist_gt, rows = evaluate_waves(
+    #    gt=gt,
+    #    iterations=pinches,
+    #    amp_x_range=(1, 4),
+    #    freq_x_range=(50, 100),
+    #    amp_y_range=(1, 4),
+    #    freq_y_range=(50, 100),
+    #)
+
+
+    #dist_gt, rows = evaluate_perlin(
+    #    gt=gt,
+    #    iterations=pinches,
+    #    scale_range=(0, 1),
+    #    sigma_range=(0,0.2),
+    #)
+
+
+    #dist_gt, rows = evaluate_local_wave(
+    #    gt=gt,
+    #    iterations=pinches,
+    #    amp_x_range=(0.5, 2),
+    #    freq_x_range=(20, 40),
+    #    amp_y_range=(0, 0),
+    #    freq_y_range=(40.0, 100.0),
+    #    patch_size=(20, 20),
+    #    feather_sigma=2.0,  # 0 => bordo netto; >0 => transizione morbida
+    #)
+
+
+    out_name = os.path.basename(img_path)
+    write_tensor_as_png(dist_gt, os.path.join(outpath, out_name))
+
+    # return just the light payload
+    return rows
+
+
+def run_simple_processpool(to_process, args, max_workers=None):
+    if max_workers is None:
+        max_workers = os.cpu_count() or 2
+
+    overall_df = None
+
+    # use spawn to avoid fork-related hangs
+    ctx = mp.get_context("spawn")
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=ctx,
+    ) as ex:
+        # map is simpler than submit/as_completed; chunksize=1 avoids worker starvation
+        for rows in ex.map(_process_one, to_process,
+                           [args.outpath]*len(to_process),
+                           [args.pinches]*len(to_process),
+                           chunksize=1):
+            df = convert_to_df(rows)
+            overall_df = df if overall_df is None else (overall_df + df)
+
+    return overall_df
+
+
+def run_serial(to_process, args):
+    overall_df = None
+    for p in to_process:
+        rows = _process_one(p, args.outpath, args.pinches)
+        df = convert_to_df(rows)
+        overall_df = df if overall_df is None else (overall_df + df)
+    return overall_df
+
+
+# -------------------------------
 # Main
 # -------------------------------
 
@@ -288,6 +722,8 @@ def main():
     p.set_defaults(phase_weight=True)
     
     p.add_argument("--pinches", type=int, help="Number of random pinch/bulge distortions to apply to pred before comparison.")
+
+    p.add_argument("--workers", type=int, default=0, help="Number of parallel workers (0=auto).")
     
     p.add_argument("--csv", default="", help="Optional path to write CSV with results.")
     args = p.parse_args()
@@ -303,27 +739,13 @@ def main():
         print(f"No PNG files found in {args.gt}")
         return
     
-    overall_df = None
-    
-    for idx, img_path in enumerate(to_process):
+    if args.workers <= 1:
+        # Serial process
+        overall_df = run_serial(to_process, args)
+    else:
+        # Parallell process
+        overall_df = run_simple_processpool(to_process, args, max_workers=15)
 
-        print(f"\nProcessing image: {img_path} {idx+1}/{len(to_process)}")
-
-        gt = load_png_as_tensor(img_path)
-
-        distorced_gt, rows = evaluate_pinches(
-            gt=gt,
-            iterations=args.pinches,
-            radius_range=(40, 100),
-            strenght_range=(-0.4, 0.4)
-        )
-
-        df = convert_to_df(rows)
-        overall_df = df if overall_df is None else overall_df+df
-
-        img_outpath = os.path.join(args.outpath, os.path.basename(img_path))
-        write_tensor_as_png(distorced_gt, img_outpath)
-    
     # Average overall metrics
     overall_df /= len(to_process)
     print("\nOverall average metrics:")
@@ -337,4 +759,13 @@ def main():
 
 
 if __name__ == "__main__":
+    # one-liner to enforce spawn everywhere (esp. on Linux)
+    mp.set_start_method("spawn", force=True)
+
+    # optional: reduce native lib threads (keeps it simple & stable)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
     main()

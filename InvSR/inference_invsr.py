@@ -125,6 +125,8 @@ def main():
 
     configs = get_configs(args)
 
+    print("TIMESTAMP:", configs.timesteps)
+
     sampler = InvSamplerSR(configs)
 
     sampler.inference(args.in_path, out_path=args.out_path, bs=args.bs)

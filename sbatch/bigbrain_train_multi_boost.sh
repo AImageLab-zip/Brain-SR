@@ -4,12 +4,12 @@
 #SBATCH --error=/homes/gcasari/io/error_%x.txt
 #SBATCH --gres=gpu:3
 #SBATCH --nodes=1
-#SBATCH --partition=all_usr_prod
+#SBATCH --partition=boost_usr_prod
 #SBATCH --account=bolelli_synthetic
 #SBATCH --cpus-per-task=21
 #SBATCH --time=24:00:00
-#SBATCH --mem-per-gpu=18GB
-#SBATCH --constraint="gpu_RTX6000_24G|gpu_RTXA5000_24G|gpu_A40_48G|gpu_L40S_48G"
+#SBATCH --mem-per-gpu=25GB
+#SBATCH --constraint="gpu_A40_48G|gpu_L40S_48G"
 
 
 cd /homes/gcasari/bigbrain/InvSR/

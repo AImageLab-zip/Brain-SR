@@ -16,10 +16,25 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}/InvSR",
             "args": [
-                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth",
+                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_small/ckpts/model_99000.pth",
                 "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/sample-sd-turbo.yaml",
-                "-i", "/homes/gcasari/bigbrain/crops/crop_test/high",
-                "-o", "/homes/gcasari/bigbrain/out_report/nol2_adj",
+                "-i", "/homes/gcasari/bigbrain/work_data/crops_datasets/test1000/low",
+                "-o", "/homes/gcasari/bigbrain/out_report/TEST_OUT",
+            ]
+        },
+        {
+            "name": "Debug03 Inference",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/InvSR/inference_invsr.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/InvSR",
+            "python": "/homes/gcasari/bigbrain/custom_python.sh",
+            "args": [
+                "--started_ckpt_path", "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_small/ckpts/model_99000.pth",
+                "--cfg_path", "/homes/gcasari/bigbrain/InvSR/configs/sample-sd-turbo.yaml",
+                "-i", "/homes/gcasari/bigbrain/work_data/crops_datasets/test1000/low",
+                "-o", "/homes/gcasari/bigbrain/out_report/TEST_OUT",
             ]
         },
         {
@@ -120,6 +135,34 @@
             "python": "/homes/gcasari/bigbrain/custom_python.sh",
             "args": [
                 "--cfg_path", "configs/custom-test-sr.yaml"
+            ]
+        },
+        {
+            "name": "Debug Distort",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/utils/distort_image.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/utils",
+            "args": [
+                "--gt", "/homes/gcasari/bigbrain/work_data/crops_datasets/test1000/high/",
+                "--outpath", "/homes/gcasari/bigbrain/work_data/out_report/distort_debug",
+                "--pinches", "6",
+                "--workers", "0",
+            ]
+        },
+        {
+            "name": "Debug Compute Metrics",
+            "justMyCode": false,
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/utils/compute_metrics_out.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/utils",
+            "args": [
+                "--f1", "/homes/gcasari/bigbrain/work_data/crops_datasets/test1000/high",
+                "--f2", "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_adj_small",
+                "--output_csv", "/homes/gcasari/bigbrain/work_data/out_report/ff_nol2_adj_small_predict_new.csv",
             ]
         }
     ]

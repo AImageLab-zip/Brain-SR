@@ -285,35 +285,12 @@ class DatasetCropsGenerator():
 
 if __name__ == "__main__":
 
-    validation_names = ['2251', '2447', '6899', '5048', '4449', '2803', '3305', '1901', '0199', '4950', '0102', '0251', '0350', '0750', '0900', '0951', '1049', '1100', '1205', '1307', '1345', '1402', '1454', '1600', '1649', '1697', '1749', '1801', '1842', '1998', '2206', '2313', '2393', '2494', '2591', '2653', '2757', '2845', '2896', '3096', '3146', '3196', '3254', '3407', '3500', '3556', '3601', '3645', '3698', '3750', '3797', '3856', '3905', '3954', '4050', '4156', '4248', '4342', '4401', '4497', '4549', '4599', '4651', '4708', '4751', '4844', '4900', '5001', '5102', '5149', '5401', '5447', '5511', '5550', '5602', '5661', '5702', '5798', '5890', '5943', '6000', '6049', '6101', '6152', '6199', '6249', '6297', '6400', '6450', '6495', '6549', '6599', '6748', '6800', '7103', '7150', '7250', '7300', '7350', '7400']
+    # validation_names = ['2251', '2447', '6899', '5048', '4449', '2803', '3305', '1901', '0199', '4950', '0102', '0251', '0350', '0750', '0900', '0951', '1049', '1100', '1205', '1307', '1345', '1402', '1454', '1600', '1649', '1697', '1749', '1801', '1842', '1998', '2206', '2313', '2393', '2494', '2591', '2653', '2757', '2845', '2896', '3096', '3146', '3196', '3254', '3407', '3500', '3556', '3601', '3645', '3698', '3750', '3797', '3856', '3905', '3954', '4050', '4156', '4248', '4342', '4401', '4497', '4549', '4599', '4651', '4708', '4751', '4844', '4900', '5001', '5102', '5149', '5401', '5447', '5511', '5550', '5602', '5661', '5702', '5798', '5890', '5943', '6000', '6049', '6101', '6152', '6199', '6249', '6297', '6400', '6450', '6495', '6549', '6599', '6748', '6800', '7103', '7150', '7250', '7300', '7350', '7400']
 
-    lr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/low_res_coronal_minc/"
-    hr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/high_res_aligned/"
+    # lr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/low_res_coronal_minc/"
+    # hr_path = "/homes/gcasari/bigbrain/work_data/BigBrain/high_res_aligned/"
 
-    out_path = "/homes/gcasari/bigbrain/work_data/crops_datasets/test/"
-
-    crop_config = CropConfig(
-        lr_crop_size=128,
-        hr_crop_size=512,
-        stride=64,
-        white_threshold=0.9,
-        downsampled_sigma=2
-    )
-
-    crop_generator = DatasetCropsGenerator(lr_path, hr_path, out_path, crop_config)
-    crop_generator.compute_list(exclude_ids=validation_names)
-    #crop_generator.random_select(90)
-    crop_generator.generate_crops()
-
-    print("Crops generation completed!")
-
-
-    # # Example single usage
-    # lr_path = "/homes/gcasari/bigbrain/work_data/example_data/original/pm2956o.mnc"
-    # hr_affine_path = "/homes/gcasari/bigbrain/work_data/example_data/high-res/aligned/B20_2956_affine.json"
-    # hr_path = "/homes/gcasari/bigbrain/work_data/example_data/high-res/aligned/B20_2956.tif"
-    
-    # out_path = "/homes/gcasari/bigbrain/crops/crop_test/"
+    # out_path = "/homes/gcasari/bigbrain/work_data/crops_datasets/test/"
 
     # crop_config = CropConfig(
     #     lr_crop_size=128,
@@ -323,6 +300,29 @@ if __name__ == "__main__":
     #     downsampled_sigma=2
     # )
 
-    # crop_generator = SingleImageCropGenerator(lr_path, hr_affine_path, hr_path, out_path, crop_config)
+    # crop_generator = DatasetCropsGenerator(lr_path, hr_path, out_path, crop_config)
+    # crop_generator.compute_list(exclude_ids=validation_names)
+    # #crop_generator.random_select(90)
     # crop_generator.generate_crops()
+
+    # print("Crops generation completed!")
+
+
+    # Example single usage
+    lr_path = "/homes/gcasari/bigbrain/work_data/example_data/original/pm2956o.mnc"
+    hr_affine_path = "/homes/gcasari/bigbrain/work_data/example_data/high-res/aligned/B20_2956_affine.json"
+    hr_path = "/homes/gcasari/bigbrain/work_data/example_data/high-res/aligned/B20_2956.tif"
+    
+    out_path = "/homes/gcasari/bigbrain/crops/crop_test/"
+
+    crop_config = CropConfig(
+        lr_crop_size=128,
+        hr_crop_size=512,
+        stride=64,
+        white_threshold=0.9,
+        downsampled_sigma=2
+    )
+
+    crop_generator = SingleImageCropGenerator(lr_path, hr_affine_path, hr_path, out_path, crop_config)
+    crop_generator.generate_crops()
 
