@@ -9,6 +9,7 @@ import numpy as np
 from pathlib import Path
 from loguru import logger
 from omegaconf import OmegaConf
+from tqdm import tqdm
 
 from utils import util_net
 from utils import util_image
@@ -281,7 +282,7 @@ class InvSamplerSR(BaseSampler):
             dataloader = torch.utils.data.DataLoader(
                 dataset, batch_size=bs, shuffle=False, drop_last=False,
             )
-            for data in dataloader:
+            for data in tqdm(dataloader):
                 res = self.sample_func(data['lq'].cuda())
 
                 for jj in range(res.shape[0]):

@@ -11,7 +11,7 @@ from cleanfid import fid
 
 from util_fft import generate_fft_loss_func
 
-ftt_loss = generate_fft_loss_func([{"patch_size": 8, "patch_stride": 4}, {"patch_size": 4, "patch_stride": 2}])
+ftt_loss = generate_fft_loss_func([{"patch_size": 64, "patch_stride": 32}, {"patch_size": 32, "patch_stride": 16}])
 
 def load_image(path):
     img = Image.open(path).convert("RGB")
@@ -35,8 +35,6 @@ def main(f1, f2, output_csv):
     lpips = pyiqa.create_metric('lpips-vgg', device=device, as_loss=False)
     psnr = pyiqa.create_metric('psnr', device=device, color_space='ycbcr', test_y_channel=True)
     ssim = pyiqa.create_metric('ssim', device=device, color_space='ycbcr', test_y_channel=True)
-    in_score = pyiqa.create_metric('inception_score', device=device)
-    #fid = pyiqa.create_metric('fid', device="cpu", batch_size=2)
     ms_ssim = pyiqa.create_metric('ms_ssim', device=device, color_space='ycbcr', test_y_channel=True)
 
     records = []
@@ -48,13 +46,13 @@ def main(f1, f2, output_csv):
     print("Computing FID...")
     fid_score = fid.compute_fid(f2, f1, mode="clean", num_workers=4)
 
-    print("Computing IS...")
-    is_score = in_score(f2)
+    #print("Computing IS...")
+    #is_score = in_score(f2)
 
     print()
 
     for fname in tqdm(files, desc="Evaluating images"):
-        path_ref = os.path.join(f1, fname) # reference
+        path_ref = os.path.join(f1, fname, "low") # reference
         path_gen = os.path.join(f2, fname) # generated
 
         img_ref = load_image(path_ref).unsqueeze(0).to(device)  # [1, C, H, W]
@@ -62,12 +60,12 @@ def main(f1, f2, output_csv):
 
         record = {
             'filename': fname,
-            #'L1': compute_l1(img_ref, img_gen),
-            #'L2': compute_l2(img_ref, img_gen),
-            #'PSNR': psnr(img_gen, img_ref).item(),
-            #'SSIM': ssim(img_gen, img_ref).item(),
-            #'LPIPS-VGG': lpips(img_gen, img_ref).item(),
-            #'FTT': compute_ftt(img_ref, img_gen),
+            'L1': compute_l1(img_ref, img_gen),
+            'L2': compute_l2(img_ref, img_gen),
+            'PSNR': psnr(img_gen, img_ref).item(),
+            'SSIM': ssim(img_gen, img_ref).item(),
+            'LPIPS-VGG': lpips(img_gen, img_ref).item(),
+            'FTT': compute_ftt(img_ref, img_gen),
             "MS-SSIM": ms_ssim(img_gen, img_ref).item(),
         }
         
@@ -75,7 +73,7 @@ def main(f1, f2, output_csv):
 
     # Add IS and FID scores to all records
     for record in records:
-        record['IS'] = f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}"
+        #record['IS'] = f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}"
         record['FID'] = fid_score
 
     df = pd.DataFrame(records)
@@ -83,7 +81,7 @@ def main(f1, f2, output_csv):
 
     print("\n=== Aggregated Results ===")
     print(df.drop(columns=["filename"]).mean(numeric_only=True))
-    print(f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}")
+    #print(f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}")
 
 
 if __name__ == "__main__":
