@@ -8,100 +8,161 @@ import torch.nn.functional as F
 import pandas as pd
 from tqdm import tqdm
 from cleanfid import fid
+import math
 
 from util_fft import generate_fft_loss_func
 
 ftt_loss = generate_fft_loss_func([{"patch_size": 64, "patch_stride": 32}, {"patch_size": 32, "patch_stride": 16}])
 
 def load_image(path):
+    # Returns torch.float32 tensor in [0,1], shape [C,H,W]
     img = Image.open(path).convert("RGB")
-    return T.ToTensor()(img)  # [C, H, W] in [0, 1]
+    return T.ToTensor()(img)
 
-def compute_l1(img1, img2):
-    return F.l1_loss(img1, img2, reduction='mean').item()
+def l1_per_image(x, y):
+    # x,y: [B,C,H,W] -> [B]
+    return F.l1_loss(x, y, reduction='none').mean(dim=(1,2,3))
 
-def compute_l2(img1, img2):
-    return F.mse_loss(img1, img2, reduction='mean').item()
+def l2_per_image(x, y):
+    # x,y: [B,C,H,W] -> [B]
+    return F.mse_loss(x, y, reduction='none').mean(dim=(1,2,3))
 
-def compute_ftt(img1, img2):
-    return ftt_loss(img1, img2).item()
+def compute_ftt(x, y):
+    # x,y: [B,C,H,W] -> [B]
+    return ftt_loss(x, y)
+
+def auto_batch_size(base=1):
+    if not torch.cuda.is_available():
+        return base
+
+    props = torch.cuda.get_device_properties(0)
+    total_mem_gb = props.total_memory / (1024 ** 3)
+
+    print(total_mem_gb)
+
+    # Simple heuristic mapping (tune to your pipeline)
+    if total_mem_gb < 8:
+        bs = base
+    elif total_mem_gb < 16:
+        bs = 16
+    elif total_mem_gb < 24:
+        bs = 32
+
+    print("SELECTED BS", bs)
+    return bs
 
 @torch.no_grad()
-def main(f1, output_csv):
+def main(sr_dir, output_csv, limit):
+    torch.backends.cudnn.benchmark = True
+
+    batch_size = auto_batch_size()
 
     test_fold_folder = "/homes/gcasari/bigbrain/work_data/crops_datasets/test_folds"
-    folds = os.listdir(test_fold_folder)
-
+    folds = sorted([f for f in os.listdir(test_fold_folder) if os.path.isdir(os.path.join(test_fold_folder, f))])
     for f in folds:
-        fold_path = os.path.join(f1, f)
+        fold_path = os.path.join(sr_dir, f)
         if not os.path.isdir(fold_path):
-            raise FileNotFoundError(f"{fold_path} do not exists!")
+            raise FileNotFoundError(f"{fold_path} does not exist!")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Init perceptual metrics
+    # Init metrics (batchable)
     lpips = pyiqa.create_metric('lpips-vgg', device=device, as_loss=False)
     psnr = pyiqa.create_metric('psnr', device=device, color_space='ycbcr', test_y_channel=True)
     ssim = pyiqa.create_metric('ssim', device=device, color_space='ycbcr', test_y_channel=True)
     ms_ssim = pyiqa.create_metric('ms_ssim', device=device, color_space='ycbcr', test_y_channel=True)
 
-    # Store results for each fold
     fold_results = {}
 
     for fold in folds:
-
         print(f"\n=== Processing Fold {fold} ===")
-
         true_dir = os.path.join(test_fold_folder, fold, "high")
-        gen_dir = os.path.join(f1, fold)
+        gen_dir = os.path.join(sr_dir, fold)
+
+        # shared filenames
+        files = sorted(f for f in os.listdir(true_dir) if os.path.isfile(os.path.join(gen_dir, f)))
+        if limit is not None and limit > 0:
+            files = files[:limit]
+
+        # FID once per fold 
+        if limit is not None and limit>0:
+            # if its a test on less images, do not compute fid
+            fid_score = 50
+        else:
+            fid_score = fid.compute_fid(true_dir, gen_dir, mode="clean", num_workers=8)
 
         records = []
+        n = len(files)
+        n_batches = math.ceil(n / batch_size)
 
-        # List of filenames shared by both folders
-        files = sorted(f for f in os.listdir(true_dir)
-                    if os.path.isfile(os.path.join(gen_dir, f)))
-        
-        files = files[:20]
-        
-        print("Computing FID...")
-        fid_score = 50#fid.compute_fid(true_dir, gen_dir, mode="clean", num_workers=4)
+        for bi in tqdm(range(n_batches), desc="Evaluating (batched)"):
+            batch_files = files[bi*batch_size : (bi+1)*batch_size]
+            # Load to host
+            refs_cpu = [load_image(os.path.join(true_dir, f)) for f in batch_files]
+            gens_cpu = [load_image(os.path.join(gen_dir,  f)) for f in batch_files]
 
-        for fname in tqdm(files, desc="Evaluating images"):
-            path_ref = os.path.join(true_dir, fname) # reference
-            path_gen = os.path.join(gen_dir, fname) # generated
+            # Stack and move once to GPU
+            ref = torch.stack(refs_cpu, dim=0).to(device, non_blocking=True)
+            gen = torch.stack(gens_cpu, dim=0).to(device, non_blocking=True)
 
-            img_ref = load_image(path_ref).unsqueeze(0).to(device)  # [1, C, H, W]
-            img_gen = load_image(path_gen).unsqueeze(0).to(device)
+            # Per-image metrics (batched)
+            L1 = l1_per_image(ref, gen)                   # [B]
+            L2 = l2_per_image(ref, gen)                   # [B]
+            FTT = compute_ftt(ref, gen)                   # [B]
 
-            record = {
-                'filename': fname,
-                "fold": fold,
-                'L1': compute_l1(img_ref, img_gen),
-                'L2': compute_l2(img_ref, img_gen),
-                'PSNR': psnr(img_gen, img_ref).item(),
-                'SSIM': ssim(img_gen, img_ref).item(),
-                'LPIPS-VGG': lpips(img_gen, img_ref).item(),
-                'FTT': compute_ftt(img_ref, img_gen),
-                "MS-SSIM": ms_ssim(img_gen, img_ref).item(),
-                "FID": fid_score,
-            }
-            
-            records.append(record)
+            # PyIQA metrics (they return [B] tensors)
+            PSNR = psnr(gen, ref)                         # [B]
+            SSIM = ssim(gen, ref)                         # [B]
+            MS_SSIM = ms_ssim(gen, ref)                   # [B]
+            LPIPS = lpips(gen, ref)                       # [B]
+
+            # Move to CPU once
+            L1 = L1.detach().cpu().tolist()
+            L2 = L2.detach().cpu().tolist()
+            FTT = FTT.detach().cpu().tolist()
+            PSNR = PSNR.detach().cpu().tolist()
+            SSIM = SSIM.detach().cpu().tolist()
+            MS_SSIM = MS_SSIM.detach().cpu().tolist()
+            LPIPS = LPIPS.detach().cpu().tolist()
+
+            for i, fname in enumerate(batch_files):
+                records.append({
+                    'filename': fname,
+                    'fold': fold,
+                    'L1': L1[i],
+                    'L2': L2[i],
+                    'PSNR': PSNR[i],
+                    'SSIM': SSIM[i],
+                    'LPIPS-VGG': LPIPS[i],
+                    'FTT': FTT[i],
+                    'MS-SSIM': MS_SSIM[i],
+                    'FID': float(fid_score),
+                })
 
         df_fold = pd.DataFrame(records)
         fold_results[fold] = df_fold.drop(columns=["filename", "fold"]).mean(numeric_only=True)
 
         print(f"\n=== Results for Fold {fold} ===")
         print(fold_results[fold])
-    
 
-    df_fold_means = pd.DataFrame(fold_results).T  # fold_results: {fold: Series(mean metrics)}
+    df_fold_means = pd.DataFrame(fold_results).T
 
-    df_fold_means.to_csv(output_csv, index=False)
-
-    # Compute mean of per-fold means and std of per-fold means (std over folds)
+    # Compute mean and std across folds
     mean_results = df_fold_means.mean(axis=0, numeric_only=True)
-    std_results = df_fold_means.std(axis=0, ddof=0, numeric_only=True) 
+    std_results  = df_fold_means.std(axis=0, ddof=0, numeric_only=True)
+
+    # Add empty separator row (all NaN)
+    empty_row = pd.Series({col: None for col in df_fold_means.columns}, name="")
+
+    # Add mean and std rows with proper labels
+    mean_row = pd.Series(mean_results, name="Mean")
+    std_row  = pd.Series(std_results, name="Std")
+
+    # Concatenate them
+    df_fold_means = pd.concat([df_fold_means, empty_row.to_frame().T, mean_row.to_frame().T, std_row.to_frame().T])
+
+    # Save to CSV
+    df_fold_means.to_csv(output_csv, index=True)  # keep index so 'Mean' and 'Std' are visible
 
     print("\n=== Final Results Across All Folds (computed over per-fold means) ===")
     print("\nMean:")
@@ -109,11 +170,11 @@ def main(f1, output_csv):
     print("\nStandard Deviation (over fold means):")
     print(std_results)
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sr", type=str, required=True, help="Path to generated")
-    parser.add_argument("--output_csv", type=str, default="metrics_results.csv", help="Output CSV file for per-image metrics")
+    parser.add_argument("--output_csv", type=str, default="metrics_results.csv",
+                        help="Output CSV file for per-fold means")
+    parser.add_argument("--limit", type=int, default=0, help="Limit images per fold (0=all)")
     args = parser.parse_args()
-
-    main(args.sr, args.output_csv)
+    main(args.sr, args.output_csv, args.limit if args.limit > 0 else None)
