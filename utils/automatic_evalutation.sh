@@ -15,12 +15,12 @@ EXPS=(
 )
 
 OUTS=(
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/fold_metrics.csv"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_folds/fold_metrics.csv"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_big_folds/fold_metrics.csv"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_bridge16_folds/fold_metrics.csv"
-  "/homes/gcasari/bigbrain/work_data/out_report/lpip2_2e5_folds/fold_metrics.csv"
-  "/homes/gcasari/bigbrain/work_data/out_report/mid_disc_folds/fold_metrics.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/fold_metrics_lpips.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_folds/fold_metrics_lpips.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_big_folds/fold_metrics_lpips.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/fft_bridge16_folds/fold_metrics_lpips.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/lpip2_2e5_folds/fold_metrics_lpips.csv"
+  "/homes/gcasari/bigbrain/work_data/out_report/mid_disc_folds/fold_metrics_lpips.csv"
 )
 
 if [ "${#EXPS[@]}" -ne "${#OUTS[@]}" ]; then

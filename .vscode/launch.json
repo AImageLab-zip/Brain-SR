@@ -164,6 +164,20 @@
                 "--f2", "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_adj_small",
                 "--output_csv", "/homes/gcasari/bigbrain/work_data/out_report/ff_nol2_adj_small_predict_new.csv",
             ]
+        },
+        {
+            "name": "Debug Compute Metrics Fold",
+            "justMyCode": false,
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/utils/compute_metric_fold.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/utils",
+            "args": [
+                "--sr", "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/",
+                "--output_csv", "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/fold_metrics_test.csv",
+                "--limit", "50"
+            ]
         }
     ]
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bigbrain_fft_bridge
+#SBATCH --job-name=bigbrain_nol2
 #SBATCH --output=/homes/gcasari/io/output_%x.txt
 #SBATCH --error=/homes/gcasari/io/error_%x.txt
 #SBATCH --gres=gpu:3
@@ -14,4 +14,4 @@
 
 cd /homes/gcasari/bigbrain/InvSR/
 
-CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name fft_bridge_16 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/fft_bridge_16.yaml --resume
+CUDA_VISIBLE_DEVICES=0,1,2 torchrun --standalone --nproc_per_node=3 --nnodes=1 main.py --run_name fft_bridge_nol2 --cfg_path /homes/gcasari/bigbrain/InvSR/configs/fft_bridge_nol2.yaml --resume

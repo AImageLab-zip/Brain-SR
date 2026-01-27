@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bigbrain_eval_multi
+#SBATCH --job-name=bigbrain_enc_dec
 #SBATCH --output=/homes/gcasari/io/output_%x.txt
 #SBATCH --error=/homes/gcasari/io/error_%x.txt
 #SBATCH --gres=gpu:1
@@ -12,4 +12,4 @@
 
 cd /homes/gcasari/bigbrain/utils
 
-bash automatic_evalutation_multi.sh
+bash fold_encode_decode.sh

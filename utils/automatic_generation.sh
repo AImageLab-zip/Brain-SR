@@ -12,21 +12,23 @@ BS=16
 
 # Hardcoded lists (one-to-one mapping)
 CKPTS=(
-  "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_small/ckpts/model_99000.pth"
-  "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth"
-  "/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_big1/ckpts/model_99000.pth"
-  "/homes/gcasari/bigbrain/work_data/logs/fft_bridge_16/ckpts/model_99000.pth"
-  "/homes/gcasari/bigbrain/work_data/logs/lpip2_2e5/ckpts/model_44000.pth"
-  "/homes/gcasari/bigbrain/work_data/logs/mid_disc/ckpts/model_50000.pth" 
+  #"/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_small/ckpts/model_99000.pth"
+  #"/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj/ckpts/model_99000.pth"
+  #"/homes/gcasari/bigbrain/work_data/logs/fft_nol2_adj_big1/ckpts/model_99000.pth"
+  #"/homes/gcasari/bigbrain/work_data/logs/fft_bridge_16/ckpts/model_99000.pth"
+  #"/homes/gcasari/bigbrain/work_data/logs/lpip2_2e5/ckpts/model_44000.pth"
+  #"/homes/gcasari/bigbrain/work_data/logs/mid_disc/ckpts/model_50000.pth" 
+  "/homes/gcasari/bigbrain/work_data/logs/l2only_bridge/ckpts/model_99000.pth"
 )
 
 OUTS=(
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_folds/"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_big_folds/"
-  "/homes/gcasari/bigbrain/work_data/out_report/fft_bridge16_folds/"
-  "/homes/gcasari/bigbrain/work_data/out_report/lpip2_2e5_folds/"
-  "/homes/gcasari/bigbrain/work_data/out_report/mid_disc_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_small_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/fft_nol2_big_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/fft_bridge16_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/lpip2_2e5_folds/"
+  #"/homes/gcasari/bigbrain/work_data/out_report/mid_disc_folds/"
+  "/homes/gcasari/bigbrain/work_data/out_report/l2only_bridge_folds/"
 )
 
 if [ "${#CKPTS[@]}" -ne "${#OUTS[@]}" ]; then

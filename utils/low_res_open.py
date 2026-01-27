@@ -33,7 +33,7 @@ def save_slices_as_png(volume: np.ndarray, out_dir: str):
     im = Image.fromarray(slice_img)
     im.save(os.path.join(out_dir, f"{os.path.basename(low_res_path).split('.')[0]}.png"))
 
-low_res_path = '/homes/gcasari/bigbrain/work_data/example_data/original/pm2956o.mnc'
+low_res_path = '/homes/gcasari/bigbrain/work_data/BigBrain/low_res_coronal_minc/pm3196o.mnc'
 low_res_img, low_res_affine = open_low_res(low_res_path)
 
-save_slices_as_png(low_res_img, out_dir="/homes/gcasari/bigbrain/work_data/example_data/original_png")
+save_slices_as_png(low_res_img, out_dir="/homes/gcasari/bigbrain/work_data/example_data/original_3196")

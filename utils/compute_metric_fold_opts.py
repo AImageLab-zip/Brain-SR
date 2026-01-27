@@ -47,18 +47,19 @@ def auto_batch_size(base=1):
         bs = 16
     elif total_mem_gb < 24:
         bs = 32
+    else:
+        bs = 32
 
     print("SELECTED BS", bs)
     return bs
 
 @torch.no_grad()
-def main(sr_dir, output_csv, limit):
+def main(gt_dir, sr_dir, output_csv, limit, swinir, recons):
     torch.backends.cudnn.benchmark = True
 
     batch_size = auto_batch_size()
 
-    test_fold_folder = "/homes/gcasari/bigbrain/work_data/crops_datasets/test_folds"
-    folds = sorted([f for f in os.listdir(test_fold_folder) if os.path.isdir(os.path.join(test_fold_folder, f))])
+    folds = sorted([f for f in os.listdir(gt_dir) if os.path.isdir(os.path.join(gt_dir, f))])
     for f in folds:
         fold_path = os.path.join(sr_dir, f)
         if not os.path.isdir(fold_path):
@@ -76,11 +77,19 @@ def main(sr_dir, output_csv, limit):
 
     for fold in folds:
         print(f"\n=== Processing Fold {fold} ===")
-        true_dir = os.path.join(test_fold_folder, fold, "high")
+        if recons:
+            true_dir = os.path.join(gt_dir, fold)
+        else:
+            true_dir = os.path.join(gt_dir, fold, "high")
         gen_dir = os.path.join(sr_dir, fold)
 
         # shared filenames
-        files = sorted(f for f in os.listdir(true_dir) if os.path.isfile(os.path.join(gen_dir, f)))
+        if not swinir:
+            files = sorted(f for f in os.listdir(true_dir) if os.path.isfile(os.path.join(gen_dir, f)))
+        else:
+            # SwinIR outputs have different names
+            files = sorted(f for f in os.listdir(true_dir) if os.path.isfile(os.path.join(gen_dir, f[:-4] + '_SwinIR.png')))
+        
         if limit is not None and limit > 0:
             files = files[:limit]
 
@@ -99,7 +108,11 @@ def main(sr_dir, output_csv, limit):
             batch_files = files[bi*batch_size : (bi+1)*batch_size]
             # Load to host
             refs_cpu = [load_image(os.path.join(true_dir, f)) for f in batch_files]
-            gens_cpu = [load_image(os.path.join(gen_dir,  f)) for f in batch_files]
+            if not swinir:
+                gens_cpu = [load_image(os.path.join(gen_dir, f)) for f in batch_files]
+            else:
+                # SwinIR outputs have different names
+                gens_cpu = [load_image(os.path.join(gen_dir,  f[:-4] + '_SwinIR.png')) for f in batch_files]
 
             # Stack and move once to GPU
             ref = torch.stack(refs_cpu, dim=0).to(device, non_blocking=True)
@@ -114,7 +127,7 @@ def main(sr_dir, output_csv, limit):
             PSNR = psnr(gen, ref)                         # [B]
             SSIM = ssim(gen, ref)                         # [B]
             MS_SSIM = ms_ssim(gen, ref)                   # [B]
-            LPIPS = lpips(gen, ref).squeeze()                       # [B]
+            LPIPS = lpips(gen, ref).squeeze()             # [B]
 
             # Move to CPU once
             L1 = L1.detach().cpu().tolist()
@@ -176,5 +189,17 @@ if __name__ == "__main__":
     parser.add_argument("--output_csv", type=str, default="metrics_results.csv",
                         help="Output CSV file for per-fold means")
     parser.add_argument("--limit", type=int, default=0, help="Limit images per fold (0=all)")
+    parser.add_argument("--swinir", action="store_true", help="Use if evaluating SwinIR outputs")
+    parser.add_argument("--gt_folder", type=str, default="/homes/gcasari/bigbrain/work_data/crops_datasets/test_folds")
+    parser.add_argument("--recons", action="store_true", help="Use if evaluating reconstructions")
+
     args = parser.parse_args()
-    main(args.sr, args.output_csv, args.limit if args.limit > 0 else None)
+    # Use keyword args to avoid ordering mistakes and improve readability
+    main(
+        gt_dir=args.gt_folder,
+        sr_dir=args.sr,
+        output_csv=args.output_csv,
+        limit=(args.limit if args.limit > 0 else None),
+        swinir=args.swinir,
+        recons=args.recons
+    )

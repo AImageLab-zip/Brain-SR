@@ -46,11 +46,6 @@ def main(f1, f2, output_csv):
     print("Computing FID...")
     fid_score = fid.compute_fid(f2, f1, mode="clean", num_workers=4)
 
-    #print("Computing IS...")
-    #is_score = in_score(f2)
-
-    print()
-
     for fname in tqdm(files, desc="Evaluating images"):
         path_ref = os.path.join(f1, fname, "low") # reference
         path_gen = os.path.join(f2, fname) # generated
@@ -71,9 +66,8 @@ def main(f1, f2, output_csv):
         
         records.append(record)
 
-    # Add IS and FID scores to all records
+    # Add FID scores to all records
     for record in records:
-        #record['IS'] = f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}"
         record['FID'] = fid_score
 
     df = pd.DataFrame(records)
@@ -81,7 +75,6 @@ def main(f1, f2, output_csv):
 
     print("\n=== Aggregated Results ===")
     print(df.drop(columns=["filename"]).mean(numeric_only=True))
-    #print(f"{is_score['inception_score_mean']:.4f} ± {is_score['inception_score_std']:.4f}")
 
 
 if __name__ == "__main__":
